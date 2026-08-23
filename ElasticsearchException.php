@@ -1,0 +1,198 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch;
+
+use Contena\Core\Framework\HttpException;
+use Contena\Elasticsearch\Framework\Exception\EmptyQueryException;
+use Symfony\Component\HttpFoundation\Response;
+
+class ElasticsearchException extends HttpException
+{
+    public const DEFINITION_NOT_FOUND = 'ELASTICSEARCH__DEFINITION_NOT_FOUND';
+    public const UNSUPPORTED_DEFINITION = 'ELASTICSEARCH__UNSUPPORTED_DEFINITION';
+    public const INDEXING_ERROR = 'ELASTICSEARCH__INDEXING_ERROR';
+    public const INDEX_CREATION_ERROR = 'ELASTICSEARCH__INDEX_CREATION_ERROR';
+    public const NESTED_AGGREGATION_MISSING = 'ELASTICSEARCH__NESTED_FILTER_AGGREGATION_MISSING';
+    public const UNSUPPORTED_AGGREGATION = 'ELASTICSEARCH__UNSUPPORTED_AGGREGATION';
+    public const UNSUPPORTED_FILTER = 'ELASTICSEARCH__UNSUPPORTED_FILTER';
+    public const NESTED_AGGREGATION_PARSE_ERROR = 'ELASTICSEARCH__NESTED_AGGREGATION_PARSE_ERROR';
+    public const PARENT_FILTER_ERROR = 'ELASTICSEARCH__PARENT_FILTER_ERROR';
+    public const SERVER_NOT_AVAILABLE = 'ELASTICSEARCH__SERVER_NOT_AVAILABLE';
+    public const EMPTY_QUERY = 'ELASTICSEARCH__EMPTY_QUERY';
+    public const EMPTY_INDEXING_REQUEST = 'ELASTICSEARCH__EMPTY_INDEXING_REQUEST';
+
+    public const AWS_CREDENTIALS_NOT_FOUND = 'ELASTICSEARCH__AWS_CREDENTIALS_NOT_FOUND';
+    public const INVALID_HOST_CONFIGURATION = 'ELASTICSEARCH__INVALID_HOST_CONFIGURATION';
+
+    public const OPERATOR_NOT_ALLOWED = 'ELASTICSEARCH__OPERATOR_NOT_ALLOWED';
+
+    public const MISSING_PRIVILEGE = 'CONTENT__IMPORT_EXPORT__MISSING_PRIVILEGE';
+
+    public static function definitionNotFound(string $definition): self
+    {
+        return new self(
+            Response::HTTP_BAD_REQUEST,
+            self::DEFINITION_NOT_FOUND,
+            'Definition {{ definition }} not found',
+            ['definition' => $definition]
+        );
+    }
+
+    public static function unsupportedElasticsearchDefinition(string $definition): self
+    {
+        return new self(
+            Response::HTTP_BAD_REQUEST,
+            self::UNSUPPORTED_DEFINITION,
+            'Definition {{ definition }} is not supported for elasticsearch',
+            ['definition' => $definition]
+        );
+    }
+
+    /**
+     * @param array{reason: string, index?: string, id?: string, type?: string}|list<array{reason: string, index?: string, id?: string, type?: string}> $items
+     */
+    public static function indexingError(array $items): self
+    {
+        $esErrors = \PHP_EOL . implode(\PHP_EOL, array_column($items, 'reason'));
+
+        $exceptionMessage = 'Following errors occurred while indexing: {{ messages }}';
+        if (\in_array('mapper_parsing_exception', array_column($items, 'type'), true)) {
+            $exceptionMessage = 'Some fields are mapped to incorrect types. Please reset the index and rebuild it. Full errors: {{ messages }}';
+        }
+
+        return new self(
+            Response::HTTP_INTERNAL_SERVER_ERROR,
+            self::INDEXING_ERROR,
+            $exceptionMessage,
+            ['messages' => $esErrors]
+        );
+    }
+
+    public static function nestedAggregationMissingInFilterAggregation(string $aggregation): self
+    {
+        return new self(
+            Response::HTTP_BAD_REQUEST,
+            self::NESTED_AGGREGATION_MISSING,
+            'Filter aggregation {{ aggregation }} contains no nested aggregation.',
+            ['aggregation' => $aggregation]
+        );
+    }
+
+    public static function unsupportedAggregation(string $aggregationClass): self
+    {
+        return new self(
+            Response::HTTP_BAD_REQUEST,
+            self::UNSUPPORTED_AGGREGATION,
+            'Provided aggregation of class {{ aggregationClass }} is not supported',
+            ['aggregationClass' => $aggregationClass]
+        );
+    }
+
+    public static function unsupportedFilter(string $filterClass): self
+    {
+        return new self(
+            Response::HTTP_BAD_REQUEST,
+            self::UNSUPPORTED_FILTER,
+            'Provided filter of class {{ filterClass }} is not supported',
+            ['filterClass' => $filterClass]
+        );
+    }
+
+    public static function nestedAggregationParseError(string $aggregationName): self
+    {
+        return new self(
+            Response::HTTP_BAD_REQUEST,
+            self::NESTED_AGGREGATION_PARSE_ERROR,
+            'Nested filter aggregation {{ aggregation }} can not be parsed.',
+            ['aggregation' => $aggregationName]
+        );
+    }
+
+    public static function parentFilterError(string $filter): self
+    {
+        return new self(
+            Response::HTTP_BAD_REQUEST,
+            self::PARENT_FILTER_ERROR,
+            'Expected nested+filter+reverse pattern for parsed filter {{ filter }} to set next parent correctly.',
+            ['filter' => $filter]
+        );
+    }
+
+    public static function serverNotAvailable(): self
+    {
+        return new self(
+            Response::HTTP_INTERNAL_SERVER_ERROR,
+            self::SERVER_NOT_AVAILABLE,
+            'Elasticsearch server is not available'
+        );
+    }
+
+    public static function emptyQuery(): self
+    {
+        return new EmptyQueryException();
+    }
+
+    public static function awsCredentialsNotFound(): self
+    {
+        return new self(
+            Response::HTTP_INTERNAL_SERVER_ERROR,
+            self::AWS_CREDENTIALS_NOT_FOUND,
+            'Could not get AWS credentials'
+        );
+    }
+
+    public static function invalidHostConfiguration(string $reason): self
+    {
+        return new self(
+            Response::HTTP_INTERNAL_SERVER_ERROR,
+            self::INVALID_HOST_CONFIGURATION,
+            'Invalid OpenSearch host configuration. Reason: {{ reason }}',
+            ['reason' => $reason]
+        );
+    }
+
+    public static function emptyIndexingRequest(): self
+    {
+        return new self(
+            Response::HTTP_BAD_REQUEST,
+            self::EMPTY_INDEXING_REQUEST,
+            'Empty indexing request provided'
+        );
+    }
+
+    /**
+     * @param array<mixed> $config
+     */
+    public static function indexCreationFailed(string $index, array $config, \Throwable $exception): self
+    {
+        return new self(
+            Response::HTTP_INTERNAL_SERVER_ERROR,
+            self::INDEX_CREATION_ERROR,
+            'Creating index {{ index }} failed with payload {{ payload }}. Reason: {{ reason }}',
+            ['index' => $index, 'reason' => $exception->getMessage(), 'payload' => json_encode($config, \JSON_THROW_ON_ERROR)]
+        );
+    }
+
+    public static function operatorNotAllowed(string $operator): self
+    {
+        return new self(
+            Response::HTTP_INTERNAL_SERVER_ERROR,
+            self::OPERATOR_NOT_ALLOWED,
+            'Operator {{ operator }} not allowed',
+            ['operator' => $operator]
+        );
+    }
+
+    /**
+     * @param array<string> $privilege
+     */
+    public static function missingPrivilege(array $privilege): self
+    {
+        return new self(
+            Response::HTTP_FORBIDDEN,
+            self::MISSING_PRIVILEGE,
+            'Missing privilege: {{ missingPrivileges }}',
+            ['missingPrivileges' => \json_encode($privilege)],
+        );
+    }
+}

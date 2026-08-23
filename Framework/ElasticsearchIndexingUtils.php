@@ -1,0 +1,112 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Framework;
+
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception;
+use Contena\Core\Framework\Context;
+use Contena\Elasticsearch\Blog\BlogCustomFieldsUsedUpdater;
+use Contena\Elasticsearch\Event\ElasticsearchCustomFieldsMappingEvent;
+use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+
+/**
+ * @final
+ */
+class ElasticsearchIndexingUtils
+{
+    public const TEXT_MAX_LENGTH = 32766;
+
+    /**
+     * @var array<string, array<string, string>>
+     */
+    private array $customFieldsTypes = [];
+
+    /**
+     * @internal
+     */
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly EventDispatcherInterface $eventDispatcher,
+        private readonly ParameterBagInterface $parameterBag,
+    ) {
+    }
+
+    /**
+     * @throws Exception
+     *
+     * @return array<string, string>
+     */
+    public function getCustomFieldTypes(string $entity, Context $context): array
+    {
+        if (\array_key_exists($entity, $this->customFieldsTypes)) {
+            return $this->customFieldsTypes[$entity];
+        }
+
+        $mappingKey = \sprintf('elasticsearch.%s.custom_fields_mapping', $entity);
+        $customFieldsMapping = $this->parameterBag->has($mappingKey) ? $this->parameterBag->get($mappingKey) : [];
+
+        $usedFieldNames = BlogCustomFieldsUsedUpdater::extractCustomFieldNames(
+            $this->connection->fetchFirstColumn(
+                'SELECT `fields` FROM `blog_sorting` WHERE `fields` LIKE :pattern',
+                ['pattern' => '%customFields.%']
+            )
+        );
+
+        /** @var array<string, string> $mappings */
+        $mappings = $this->connection->fetchAllKeyValue(
+            '
+SELECT
+    custom_field.name,
+    custom_field.type
+FROM custom_field_set_relation
+    INNER JOIN custom_field ON(custom_field.set_id = custom_field_set_relation.set_id)
+    INNER JOIN custom_field_set ON(custom_field_set.id = custom_field.set_id)
+WHERE custom_field_set_relation.entity_name = :entity
+    AND custom_field.active = 1
+    AND (custom_field.name IN (:fields) OR custom_field.include_in_search = 1)',
+            ['entity' => $entity, 'fields' => $usedFieldNames],
+            ['fields' => ArrayParameterType::STRING]
+        ) + $customFieldsMapping;
+
+        $event = new ElasticsearchCustomFieldsMappingEvent($entity, $mappings, $context);
+
+        $this->eventDispatcher->dispatch($event);
+
+        $this->customFieldsTypes[$entity] = $event->getMappings();
+
+        return $this->customFieldsTypes[$entity];
+    }
+
+    /**
+     * @description strip html tags from text and truncate to 32766 characters
+     */
+    public static function stripText(string $text): string
+    {
+        // Remove all html elements to save up space
+        $text = strip_tags($text);
+
+        if (mb_strlen($text) >= self::TEXT_MAX_LENGTH) {
+            return mb_substr($text, 0, self::TEXT_MAX_LENGTH);
+        }
+
+        return $text;
+    }
+
+    /**
+     * @param array<string, string|null> $record
+     *
+     * @throws \JsonException
+     *
+     * @return array<mixed>
+     */
+    public static function parseJson(array $record, string $field): array
+    {
+        if (!\array_key_exists($field, $record)) {
+            return [];
+        }
+
+        return json_decode($record[$field] ?? '[]', true, 512, \JSON_THROW_ON_ERROR);
+    }
+}

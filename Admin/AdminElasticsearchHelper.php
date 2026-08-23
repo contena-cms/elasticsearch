@@ -1,0 +1,65 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Admin;
+
+use Psr\Log\LoggerInterface;
+
+/**
+ * @internal
+ *
+ * @final
+ */
+class AdminElasticsearchHelper
+{
+    public function __construct(
+        private bool $adminEsEnabled,
+        private readonly bool $refreshIndices,
+        private readonly string $adminIndexPrefix,
+        private readonly string $environment,
+        private readonly bool $throwException,
+        private readonly LoggerInterface $logger
+    ) {
+    }
+
+    public function isEnabled(): bool
+    {
+        return $this->adminEsEnabled;
+    }
+
+    /**
+     * Only used for unit tests because the container parameter bag is frozen and can not be changed at runtime.
+     * Therefore this function can be used to test different behaviours
+     *
+     * @internal
+     */
+    public function setEnabled(bool $enabled): self
+    {
+        $this->adminEsEnabled = $enabled;
+
+        return $this;
+    }
+
+    public function getRefreshIndices(): bool
+    {
+        return $this->refreshIndices;
+    }
+
+    public function getPrefix(): string
+    {
+        return $this->adminIndexPrefix;
+    }
+
+    public function getIndex(string $name): string
+    {
+        return $this->adminIndexPrefix . '-' . \strtolower(\str_replace(['_', ' '], '-', $name));
+    }
+
+    public function logAndThrowException(\Throwable $exception): void
+    {
+        $this->logger->critical($exception->getMessage());
+
+        if ($this->environment === 'test' || $this->throwException) {
+            throw $exception;
+        }
+    }
+}

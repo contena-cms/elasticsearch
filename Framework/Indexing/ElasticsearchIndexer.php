@@ -1,0 +1,328 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Framework\Indexing;
+
+use Doctrine\DBAL\Connection;
+use OpenSearch\Client;
+use Psr\Clock\ClockInterface;
+use Psr\Log\LoggerInterface;
+use Contena\Core\Framework\Context;
+use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IteratorFactory;
+use Contena\Core\Framework\DataAbstractionLayer\EntityDefinition;
+use Contena\Core\Framework\Uuid\Uuid;
+use Contena\Elasticsearch\ElasticsearchException;
+use Contena\Elasticsearch\Framework\ElasticsearchHelper;
+use Contena\Elasticsearch\Framework\ElasticsearchRegistry;
+use Contena\Elasticsearch\Framework\Indexing\Event\ElasticsearchIndexingFinishedEvent;
+use Contena\Elasticsearch\Framework\Indexing\Event\ElasticsearchIndexIteratorEvent;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\Messenger\Attribute\AsMessageHandler;
+
+/**
+ * @internal
+ *
+ * @final
+ */
+#[AsMessageHandler]
+class ElasticsearchIndexer
+{
+    /**
+     * @internal
+     */
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly ElasticsearchHelper $helper,
+        private readonly ElasticsearchRegistry $registry,
+        private readonly IndexCreator $indexCreator,
+        private readonly IteratorFactory $iteratorFactory,
+        private readonly Client $client,
+        private readonly LoggerInterface $logger,
+        private readonly EventDispatcherInterface $eventDispatcher,
+        private readonly int $indexingBatchSize,
+        private readonly ClockInterface $clock,
+        private readonly bool $refreshAfterBulk = false,
+    ) {
+    }
+
+    public function __invoke(ElasticsearchIndexingMessage $message): void
+    {
+        if (!$this->helper->allowIndexing()) {
+            return;
+        }
+
+        $this->handleIndexingMessage($message);
+    }
+
+    /**
+     * @param array<string> $entities
+     */
+    public function iterate(?IndexerOffset $offset = null, array $entities = []): ?ElasticsearchIndexingMessage
+    {
+        if (!$this->helper->allowIndexing()) {
+            return null;
+        }
+
+        if ($offset === null) {
+            $offset = $this->init($entities);
+        }
+
+        return $this->createIndexingMessage($offset);
+    }
+
+    /**
+     * @param array<string> $ids
+     */
+    public function updateIds(EntityDefinition $definition, array $ids, Context $context): void
+    {
+        if (!$this->helper->allowIndexing()) {
+            return;
+        }
+
+        $alias = $this->helper->getIndexName($definition);
+
+        if (!$this->client->indices()->existsAlias(['name' => $alias])) {
+            $this->init();
+        }
+
+        $this->__invoke($this->generateMessage($definition, $ids, $context));
+    }
+
+    /**
+     * @param array<string> $ids
+     */
+    private function generateMessage(EntityDefinition $definition, array $ids, Context $context): ElasticsearchIndexingMessage
+    {
+        $alias = $this->helper->getIndexName($definition);
+
+        $indexing = new IndexingDto($ids, $alias, $definition->getEntityName());
+
+        return new ElasticsearchIndexingMessage($indexing, null, $context);
+    }
+
+    private function createIndexingMessage(IndexerOffset $offset): ?ElasticsearchIndexingMessage
+    {
+        $definition = $this->registry->get((string) $offset->getDefinition());
+
+        if (!$definition) {
+            throw ElasticsearchException::definitionNotFound((string) $offset->getDefinition());
+        }
+
+        $entity = $definition->getEntityDefinition()->getEntityName();
+
+        $iterator = $this->iteratorFactory->createIterator($definition->getEntityDefinition(), $offset->getLastId(), $this->indexingBatchSize);
+
+        $event = new ElasticsearchIndexIteratorEvent($definition, $iterator);
+        $this->eventDispatcher->dispatch($event);
+
+        $ids = $event->iterator->fetch();
+
+        if ($ids === []) {
+            if (!$offset->hasNextDefinition()) {
+                return null;
+            }
+            // increment definition offset
+            $offset->selectNextDefinition();
+
+            // reset last id to start iterator at the beginning
+            $offset->setLastId(null);
+
+            return $this->createIndexingMessage($offset);
+        }
+
+        $alias = $this->helper->getIndexName($definition->getEntityDefinition());
+
+        $index = $alias . '_' . $offset->getTimestamp();
+
+        // increment last id with iterator offset
+        $offset->setLastId($iterator->getOffset());
+
+        // return indexing message for current offset
+        return new ElasticsearchIndexingMessage(new IndexingDto(array_values($ids), $index, $entity), $offset, Context::createGlobalContext());
+    }
+
+    /**
+     * @param array<string> $entities
+     */
+    private function init(array $entities = []): IndexerOffset
+    {
+        $this->connection->executeStatement('DELETE FROM elasticsearch_index_task');
+
+        $timestamp = \DateTime::createFromImmutable($this->clock->now());
+
+        $this->createIndex($timestamp);
+
+        $entitiesToHandle = $this->handleEntities($entities);
+
+        return new IndexerOffset(
+            $entitiesToHandle,
+            $timestamp->getTimestamp()
+        );
+    }
+
+    /**
+     * @param array<mixed> $result
+     *
+     * @return array{index: string, id: string, type: string, reason: string}[]
+     */
+    private function parseErrors(array $result): array
+    {
+        $errors = [];
+        foreach ($result['items'] as $item) {
+            $item = $item['index'] ?? $item['delete'];
+
+            if (\in_array($item['status'], [200, 201], true)) {
+                continue;
+            }
+
+            $errors[] = [
+                'index' => $item['_index'],
+                'id' => $item['_id'],
+                'type' => $item['error']['type'] ?? ($item['_type'] ?? 'n/a'),
+                'reason' => $item['error']['reason'] ?? $item['result'],
+            ];
+
+            $this->logger->error($item['error']['reason'] ?? $item['result']);
+        }
+
+        return $errors;
+    }
+
+    private function createIndex(\DateTime $timestamp): void
+    {
+        $context = Context::createGlobalContext();
+
+        foreach ($this->registry->getDefinitions() as $definition) {
+            $alias = $this->helper->getIndexName($definition->getEntityDefinition());
+
+            $index = $alias . '_' . $timestamp->getTimestamp();
+
+            $hasAlias = $this->indexCreator->aliasExists($alias);
+
+            $this->indexCreator->createIndex($definition, $index, $alias, $context);
+
+            $iterator = $definition->getIterator();
+            if (!$iterator) {
+                $iterator = $this->iteratorFactory->createIterator($definition->getEntityDefinition());
+            }
+
+            $event = new ElasticsearchIndexIteratorEvent($definition, $iterator);
+            $this->eventDispatcher->dispatch($event);
+
+            $iterator = $event->iterator;
+
+            // We don't need an index task, when it's the first indexing. This will allow alias swapping to nothing
+            if ($hasAlias) {
+                $this->connection->insert('elasticsearch_index_task', [
+                    'id' => Uuid::randomBytes(),
+                    '`entity`' => $definition->getEntityDefinition()->getEntityName(),
+                    '`index`' => $index,
+                    '`alias`' => $alias,
+                    '`doc_count`' => $iterator->fetchCount(),
+                ]);
+            }
+        }
+    }
+
+    private function handleIndexingMessage(ElasticsearchIndexingMessage $message): void
+    {
+        $task = $message->getData();
+
+        $ids = $task->getIds();
+
+        $index = $task->getIndex();
+
+        $this->connection->executeStatement('UPDATE elasticsearch_index_task SET `doc_count` = `doc_count` - :idCount WHERE `index` = :index', [
+            'idCount' => \count($ids),
+            'index' => $index,
+        ]);
+
+        if (!$this->client->indices()->exists(['index' => $index])) {
+            return;
+        }
+
+        $entity = $task->getEntity();
+
+        $definition = $this->registry->get($entity);
+
+        $context = $message->getContext();
+
+        if (!$definition) {
+            throw ElasticsearchException::definitionNotFound($entity);
+        }
+
+        $data = $definition->fetch(Uuid::fromHexToBytesList($ids), $context);
+
+        $toRemove = array_filter($ids, static fn (string $id) => !isset($data[$id]));
+
+        $documents = [];
+
+        foreach ($data as $id => $document) {
+            $documents[] = ['index' => ['_id' => $id]];
+            $documents[] = $document;
+        }
+
+        foreach ($toRemove as $id) {
+            $documents[] = ['delete' => ['_id' => $id]];
+        }
+
+        if ($documents === []) {
+            throw ElasticsearchException::emptyIndexingRequest();
+        }
+
+        $arguments = [
+            'index' => $index,
+            'body' => $documents,
+        ];
+
+        if ($this->refreshAfterBulk) {
+            $arguments['refresh'] = true;
+        }
+
+        $result = $this->client->bulk($arguments);
+
+        $exception = null;
+
+        if (\is_array($result) && isset($result['errors']) && $result['errors']) {
+            $errors = $this->parseErrors($result);
+            $exception = ElasticsearchException::indexingError($errors);
+        }
+
+        if ($message->isLastMessage()) {
+            $event = new ElasticsearchIndexingFinishedEvent();
+            $this->eventDispatcher->dispatch($event);
+        }
+
+        if ($exception) {
+            $this->helper->logAndThrowException($exception);
+        }
+    }
+
+    /**
+     * @param array<string> $entities
+     *
+     * @return iterable<string>
+     */
+    private function handleEntities(array $entities = []): iterable
+    {
+        if ($entities === []) {
+            return $this->registry->getDefinitionNames();
+        }
+
+        $registeredEntities = \is_array($this->registry->getDefinitionNames())
+            ? $this->registry->getDefinitionNames()
+            : iterator_to_array($this->registry->getDefinitionNames());
+
+        $validEntities = array_intersect($entities, $registeredEntities);
+        $unregisteredEntities = array_diff($entities, $registeredEntities);
+
+        if ($unregisteredEntities !== []) {
+            $unregisteredEntityList = implode(', ', $unregisteredEntities);
+
+            $exception = ElasticsearchException::definitionNotFound($unregisteredEntityList);
+
+            $this->helper->logAndThrowException($exception);
+        }
+
+        return $validEntities;
+    }
+}

@@ -1,0 +1,103 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\DependencyInjection;
+
+use Symfony\Component\Config\Definition\Builder\TreeBuilder;
+use Symfony\Component\Config\Definition\ConfigurationInterface;
+
+class Configuration implements ConfigurationInterface
+{
+    public function getConfigTreeBuilder(): TreeBuilder
+    {
+        $treeBuilder = new TreeBuilder('elasticsearch');
+
+        $rootNode = $treeBuilder->getRootNode();
+        $rootNode
+            ->children()
+                ->booleanNode('enabled')->end()
+                ->booleanNode('indexing_enabled')->end()
+                ->integerNode('indexing_batch_size')->defaultValue(100)->end()
+                ->booleanNode('refresh_after_bulk')->defaultFalse()->end()
+                ->scalarNode('hosts')->end()
+                ->scalarNode('index_prefix')->end()
+                ->scalarNode('throw_exception')->end()
+                ->arrayNode('ssl')
+                    ->children()
+                        ->scalarNode('cert_path')->end()
+                        ->scalarNode('cert_password')->end()
+                        ->scalarNode('cert_key_path')->end()
+                        ->scalarNode('cert_key_password')->end()
+                        ->booleanNode('verify_server_cert')->defaultValue(true)->end()
+                        ->arrayNode('sigV4')
+                            ->children()
+                                ->scalarNode('enabled')->defaultValue(false)->end()
+                                ->scalarNode('region')->end()
+                                ->scalarNode('service')->end()
+                                ->arrayNode('credentials_provider')
+                                    ->children()
+                                        ->scalarNode('key_id')->end()
+                                        ->scalarNode('secret_key')->end()
+                                    ->end()
+                                ->end()
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
+                ->arrayNode('index_settings')->variablePrototype()->end()->end()
+                ->arrayNode('analysis')->performNoDeepMerging()->variablePrototype()->end()->end()
+                ->arrayNode('language_analyzer_mapping')->defaultValue([])->scalarPrototype()->end()->end()
+                ->booleanNode('use_language_analyzer')->defaultValue(true)->end()
+                ->booleanNode('dimension_normalize')->defaultValue(false)->end()
+                ->arrayNode('dynamic_templates')->performNoDeepMerging()->variablePrototype()->end()->end()
+                ->arrayNode('blog')
+                    ->children()
+                        ->arrayNode('custom_fields_mapping')
+                            ->variablePrototype()->end()
+                        ->end()
+                        ->booleanNode('exclude_source')->end()
+                    ->end()
+                ->end()
+                ->arrayNode('search')
+                    ->children()
+                        ->scalarNode('timeout')->end()
+                        ->integerNode('term_max_length')->end()
+                        ->scalarNode('search_type')->end()
+                        ->integerNode('precision_threshold')->defaultNull()->end()
+                        ->floatNode('dismax_tie_breaker')->defaultValue(0.2)->min(0.0)->max(1.0)->end()
+                        ->arrayNode('boost')
+                            ->addDefaultsIfNotSet()
+                            ->children()
+                                ->floatNode('exact')->defaultValue(2.0)->min(0.0)->end()
+                                ->floatNode('phrase')->defaultValue(4.0)->min(0.0)->end()
+                                ->floatNode('fuzzy')->defaultValue(0.4)->min(0.0)->end()
+                                ->floatNode('prefix')->defaultValue(0.4)->min(0.0)->end()
+                                ->floatNode('partial')->defaultValue(0.4)->min(0.0)->end()
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
+                ->arrayNode('administration')
+                    ->children()
+                        ->scalarNode('hosts')->end()
+                        ->booleanNode('enabled')->end()
+                        ->booleanNode('refresh_indices')->end()
+                        ->integerNode('indexing_batch_size')->defaultValue(1000)->end()
+                        ->scalarNode('index_prefix')->end()
+                        ->scalarNode('throw_exception')->end()
+                        ->arrayNode('index_settings')->variablePrototype()->end()->end()
+                        ->arrayNode('analysis')->performNoDeepMerging()->variablePrototype()->end()->end()
+                        ->arrayNode('dynamic_templates')->performNoDeepMerging()->variablePrototype()->end()->end()
+                        ->arrayNode('search')
+                            ->children()
+                                ->scalarNode('timeout')->end()
+                                ->integerNode('term_max_length')->end()
+                                ->scalarNode('search_type')->end()
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
+            ->end();
+
+        return $treeBuilder;
+    }
+}

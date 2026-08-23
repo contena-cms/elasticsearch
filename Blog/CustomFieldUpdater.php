@@ -1,0 +1,206 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Blog;
+
+use Contena\Core\Framework\DataAbstractionLayer\EntityWriteResult;
+use Contena\Core\Framework\DataAbstractionLayer\Event\EntityWrittenContainerEvent;
+use Contena\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
+use Contena\Core\System\CustomField\Aggregate\CustomFieldSetRelation\CustomFieldSetRelationDefinition;
+use Contena\Core\System\CustomField\CustomFieldDefinition;
+use Contena\Elasticsearch\Framework\ElasticsearchHelper;
+use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+
+/**
+ * @internal
+ */
+class CustomFieldUpdater implements EventSubscriberInterface
+{
+    public function __construct(
+        private readonly ElasticsearchHelper $elasticsearchHelper,
+        private readonly CustomFieldSetGateway $customFieldSetGateway,
+        private readonly ElasticsearchCustomFieldsMappingHelper $mappingHelper
+    ) {
+    }
+
+    public static function getSubscribedEvents(): array
+    {
+        return [
+            EntityWrittenContainerEvent::class => 'indexCustomFields',
+        ];
+    }
+
+    public function indexCustomFields(EntityWrittenContainerEvent $containerEvent): void
+    {
+        $customFieldWrittenEvent = $containerEvent->getEventByEntityName(CustomFieldDefinition::ENTITY_NAME);
+        $customFieldRelationWrittenEvent = $containerEvent->getEventByEntityName(CustomFieldSetRelationDefinition::ENTITY_NAME);
+
+        if ($customFieldWrittenEvent === null && $customFieldRelationWrittenEvent === null) {
+            return;
+        }
+
+        if (!$this->elasticsearchHelper->allowIndexing()) {
+            return;
+        }
+
+        if ($customFieldRelationWrittenEvent !== null) {
+            $this->customFieldRelationsUpdated($customFieldRelationWrittenEvent);
+        }
+
+        if ($customFieldWrittenEvent !== null) {
+            $this->customFieldsCreated($customFieldWrittenEvent);
+            $this->customFieldsUpdated($containerEvent, $customFieldWrittenEvent);
+        }
+    }
+
+    private function customFieldRelationsUpdated(EntityWrittenEvent $customFieldRelationWrittenEvent): void
+    {
+        $updatedCustomFieldSetIds = [];
+        foreach ($customFieldRelationWrittenEvent->getWriteResults() as $writeResult) {
+            $existence = $writeResult->getExistence();
+
+            if ($existence && $existence->exists()) {
+                continue;
+            }
+
+            if ($writeResult->getProperty('entityName') !== 'blog') {
+                continue;
+            }
+
+            $updatedCustomFieldSetIds[] = $writeResult->getProperty('customFieldSetId');
+        }
+
+        if ($updatedCustomFieldSetIds === []) {
+            return;
+        }
+
+        $customFieldsBySet = $this->customFieldSetGateway->fetchCustomFieldsForSets($updatedCustomFieldSetIds);
+        $allCustomFields = array_merge([], ...array_values($customFieldsBySet));
+        $fields = ElasticsearchCustomFieldsMappingHelper::mapCustomFieldsToEsTypes(
+            array_column($allCustomFields, 'type', 'name')
+        );
+
+        $this->mappingHelper->createFieldsInIndices($fields);
+    }
+
+    private function customFieldsCreated(EntityWrittenEvent $customFieldWrittenEvent): void
+    {
+        $results = [];
+
+        foreach ($customFieldWrittenEvent->getWriteResults() as $writeResult) {
+            $existence = $writeResult->getExistence();
+
+            if ($existence && $existence->exists()) {
+                continue;
+            }
+
+            $key = $writeResult->getPrimaryKey();
+            \assert(\is_string($key));
+            $results[$key] = $writeResult;
+        }
+
+        if ($results === []) {
+            return;
+        }
+
+        $fieldSetIds = $this->customFieldSetGateway->fetchFieldSetIds(array_keys($results));
+        $uniqueSetIds = array_values(array_unique($fieldSetIds));
+        $fieldSetEntityMappings = $this->customFieldSetGateway->fetchFieldSetEntityMappings($uniqueSetIds);
+
+        $results = array_filter(
+            $results,
+            static function (EntityWriteResult $writeResult, string $id) use ($fieldSetEntityMappings, $fieldSetIds): bool {
+                $setId = $fieldSetIds[$id] ?? null;
+                if ($setId === null) {
+                    return false;
+                }
+
+                if (!\in_array('blog', $fieldSetEntityMappings[$setId] ?? [], true)) {
+                    return false;
+                }
+
+                $payload = $writeResult->getPayload();
+
+                return \array_key_exists('includeInSearch', $payload) && (bool) $payload['includeInSearch'];
+            },
+            \ARRAY_FILTER_USE_BOTH
+        );
+
+        if ($results === []) {
+            return;
+        }
+
+        $nameTypeMap = [];
+        foreach ($results as $writeResult) {
+            $nameTypeMap[$writeResult->getProperty('name')] = $writeResult->getProperty('type');
+        }
+
+        $newCreatedFields = ElasticsearchCustomFieldsMappingHelper::mapCustomFieldsToEsTypes($nameTypeMap);
+
+        $this->mappingHelper->createFieldsInIndices($newCreatedFields);
+    }
+
+    private function customFieldsUpdated(
+        EntityWrittenContainerEvent $containerEvent,
+        EntityWrittenEvent $customFieldWrittenEvent
+    ): void {
+        $customFieldIds = $containerEvent->getPrimaryKeysWithPropertyChange(
+            CustomFieldDefinition::ENTITY_NAME,
+            ['includeInSearch']
+        );
+
+        if ($customFieldIds === []) {
+            return;
+        }
+
+        $updatedFieldIds = [];
+        foreach ($customFieldWrittenEvent->getWriteResults() as $writeResult) {
+            $key = (string) $writeResult->getPrimaryKey();
+            if (!\in_array($key, $customFieldIds, true)) {
+                continue;
+            }
+
+            $existence = $writeResult->getExistence();
+            if (!$existence || !$existence->exists()) {
+                continue;
+            }
+
+            $payload = $writeResult->getPayload();
+            if (!\array_key_exists('includeInSearch', $payload) || !(bool) $payload['includeInSearch']) {
+                continue;
+            }
+
+            $updatedFieldIds[$key] = true;
+        }
+
+        if ($updatedFieldIds === []) {
+            return;
+        }
+
+        $fieldSetIds = $this->customFieldSetGateway->fetchFieldSetIds(array_keys($updatedFieldIds));
+
+        if ($fieldSetIds === []) {
+            return;
+        }
+
+        $setIds = array_values(array_unique($fieldSetIds));
+        $fieldSetEntityMappings = $this->customFieldSetGateway->fetchFieldSetEntityMappings($setIds);
+
+        $customFieldsBySet = $this->customFieldSetGateway->fetchCustomFieldsForSets($setIds);
+
+        $fieldsToAdd = [];
+        foreach ($customFieldsBySet as $setCustomFields) {
+            foreach ($setCustomFields as $customField) {
+                $customFieldId = $customField['id'];
+
+                if (isset($updatedFieldIds[$customFieldId])) {
+                    $setId = $fieldSetIds[$customFieldId];
+                    if (\in_array('blog', $fieldSetEntityMappings[$setId] ?? [], true)) {
+                        $fieldsToAdd[$customField['name']] = ElasticsearchCustomFieldsMappingHelper::getTypeFromCustomFieldType($customField['type']);
+                    }
+                }
+            }
+        }
+
+        $this->mappingHelper->createFieldsInIndices($fieldsToAdd);
+    }
+}

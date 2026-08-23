@@ -1,0 +1,208 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Test;
+
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use OpenSearch\Client;
+use PHPUnit\Framework\Attributes\After;
+use PHPUnit\Framework\Attributes\Before;
+use Psr\Cache\CacheItemPoolInterface;
+use Contena\Core\Defaults;
+use Contena\Core\DevOps\Environment\EnvironmentHelper;
+use Contena\Core\Framework\DataAbstractionLayer\Dbal\EntityAggregator;
+use Contena\Core\Framework\DataAbstractionLayer\Dbal\EntitySearcher;
+use Contena\Core\Framework\DataAbstractionLayer\Search\CachedSearchConfigLoader;
+use Contena\Core\Framework\Uuid\Uuid;
+use Contena\Elasticsearch\Framework\Command\ElasticsearchIndexingCommand;
+use Contena\Elasticsearch\Framework\DataAbstractionLayer\AbstractElasticsearchAggregationHydrator;
+use Contena\Elasticsearch\Framework\DataAbstractionLayer\AbstractElasticsearchSearchHydrator;
+use Contena\Elasticsearch\Framework\DataAbstractionLayer\CriteriaParser;
+use Contena\Elasticsearch\Framework\DataAbstractionLayer\ElasticsearchEntityAggregator;
+use Contena\Elasticsearch\Framework\DataAbstractionLayer\ElasticsearchEntitySearcher;
+use Contena\Elasticsearch\Framework\ElasticsearchHelper;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\NullOutput;
+use Symfony\Component\DependencyInjection\ContainerInterface;
+
+trait ElasticsearchTestTestBehaviour
+{
+    #[Before]
+    public function enableElasticsearch(): void
+    {
+        $this->getDiContainer()
+            ->get(ElasticsearchHelper::class)
+            ->setEnabled(true);
+    }
+
+    #[After]
+    public function disableElasticsearch(): void
+    {
+        $this->getDiContainer()
+            ->get(ElasticsearchHelper::class)
+            ->setEnabled(false);
+    }
+
+    public function indexElasticSearch(): void
+    {
+        $this->getDiContainer()
+            ->get(ElasticsearchIndexingCommand::class)
+            ->run(new ArrayInput([]), new NullOutput());
+
+        $this->runWorker();
+    }
+
+    public function refreshIndex(): void
+    {
+        $this->getDiContainer()->get(Client::class)
+            ->indices()
+            ->refresh(['index' => '*']);
+    }
+
+    protected function createEntityAggregator(): ElasticsearchEntityAggregator
+    {
+        $decorated = $this->createMock(EntityAggregator::class);
+
+        $decorated
+            ->expects(static::never())
+            ->method('aggregate');
+
+        return new ElasticsearchEntityAggregator(
+            $this->getDiContainer()->get(ElasticsearchHelper::class),
+            $this->getDiContainer()->get(Client::class),
+            $decorated,
+            $this->getDiContainer()->get(AbstractElasticsearchAggregationHydrator::class),
+            $this->getDiContainer()->get('event_dispatcher'),
+            '5s',
+            'dfs_query_then_fetch'
+        );
+    }
+
+    protected function createEntitySearcher(): ElasticsearchEntitySearcher
+    {
+        $decorated = $this->createMock(EntitySearcher::class);
+
+        $decorated
+            ->expects(static::never())
+            ->method('search');
+
+        return new ElasticsearchEntitySearcher(
+            $this->getDiContainer()->get(Client::class),
+            $decorated,
+            $this->getDiContainer()->get(ElasticsearchHelper::class),
+            $this->getDiContainer()->get(CriteriaParser::class),
+            $this->getDiContainer()->get(AbstractElasticsearchSearchHydrator::class),
+            $this->getDiContainer()->get('event_dispatcher'),
+            '5s',
+            'dfs_query_then_fetch'
+        );
+    }
+
+    abstract protected function getDiContainer(): ContainerInterface;
+
+    abstract protected function runWorker(): void;
+
+    /**
+     * @param list<string> $enabledFields
+     */
+    protected function setSearchConfiguration(bool $andLogic = true, array $enabledFields = ['name']): void
+    {
+        $connection = $this->getDiContainer()->get(Connection::class);
+
+        $connection->executeStatement(
+            'UPDATE blog_search_config SET and_logic = ? WHERE language_id = ?',
+            [(int) $andLogic, Uuid::fromHexToBytes(Defaults::LANGUAGE_SYSTEM)]
+        );
+
+        $configId = $connection->fetchOne(
+            'SELECT id FROM blog_search_config WHERE language_id = ?',
+            [Uuid::fromHexToBytes(Defaults::LANGUAGE_SYSTEM)]
+        );
+
+        $connection->executeStatement(
+            'DELETE FROM blog_search_config_field WHERE blog_search_config_id = ? AND field LIKE "customFields%"',
+            [$configId]
+        );
+
+        $connection->executeStatement(
+            'UPDATE blog_search_config_field SET searchable = 0, tokenize = 0 WHERE blog_search_config_id = ?',
+            [$configId]
+        );
+
+        $connection->executeStatement(
+            'UPDATE blog_search_config_field SET searchable = 1, tokenize = 1 WHERE blog_search_config_id = :configId AND field IN (:fields)',
+            ['configId' => $configId, 'fields' => $enabledFields],
+            ['fields' => ArrayParameterType::STRING]
+        );
+
+        foreach ($enabledFields as $enabledField) {
+            if (str_contains($enabledField, 'customFields')) {
+                $connection->insert(
+                    'blog_search_config_field',
+                    [
+                        'id' => Uuid::randomBytes(),
+                        'blog_search_config_id' => $configId,
+                        'field' => $enabledField,
+                        'searchable' => 1,
+                        'tokenize' => 0,
+                        'ranking' => 0,
+                        'created_at' => new \DateTime()->format(Defaults::STORAGE_DATE_TIME_FORMAT),
+                    ]
+                );
+            }
+        }
+
+        $this->invalidateSearchConfigCache();
+    }
+
+    /**
+     * @param array<string, int> $scores
+     */
+    protected function setSearchScores(array $scores): void
+    {
+        $connection = $this->getDiContainer()->get(Connection::class);
+
+        $connection->executeStatement(
+            'UPDATE blog_search_config_field SET ranking = 0 WHERE blog_search_config_id = (SELECT id FROM blog_search_config WHERE language_id = ?)',
+            [Uuid::fromHexToBytes(Defaults::LANGUAGE_SYSTEM)]
+        );
+
+        foreach ($scores as $field => $ranking) {
+            $connection->executeStatement(
+                'UPDATE blog_search_config_field SET ranking = ? WHERE blog_search_config_id = (SELECT id FROM blog_search_config WHERE language_id = ?) AND field = ?',
+                [$ranking, Uuid::fromHexToBytes(Defaults::LANGUAGE_SYSTEM), $field]
+            );
+        }
+
+        $this->invalidateSearchConfigCache();
+    }
+
+    protected function clearElasticsearch(): void
+    {
+        $c = $this->getDiContainer();
+
+        $client = $c->get(Client::class);
+
+        $indices = $client->indices()->get(['index' => EnvironmentHelper::getVariable('CONTENA_ES_INDEX_PREFIX') . '*']);
+
+        foreach ($indices as $name => $index) {
+            $client->indices()->delete(['index' => $name]);
+        }
+
+        $connection = $c->get(Connection::class);
+        $connection->executeStatement('DELETE FROM elasticsearch_index_task');
+    }
+
+    /**
+     * The raw SQL config writes above bypass entity events, so the statically keyed
+     * CachedSearchConfigLoader keeps serving whatever was loaded first. Under the v6.8 flag
+     * the search-keyword updater already primes that cache while the fixture blogs are
+     * indexed, which would freeze the pristine configuration for the whole test.
+     */
+    private function invalidateSearchConfigCache(): void
+    {
+        $cache = $this->getDiContainer()->get('cache.object');
+        \assert($cache instanceof CacheItemPoolInterface);
+        $cache->deleteItem(CachedSearchConfigLoader::CACHE_KEY);
+    }
+}

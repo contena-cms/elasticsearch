@@ -1,0 +1,361 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Admin;
+
+use OpenSearch\Client;
+use OpenSearchDSL\Query\Compound\BoolQuery;
+use OpenSearchDSL\Query\FullText\MatchQuery;
+use OpenSearchDSL\Query\FullText\SimpleQueryStringQuery;
+use OpenSearchDSL\Query\TermLevel\ExistsQuery;
+use OpenSearchDSL\Query\TermLevel\PrefixQuery;
+use OpenSearchDSL\Query\TermLevel\TermQuery;
+use OpenSearchDSL\Search;
+use Contena\Core\Framework\Api\Acl\Role\AclRoleDefinition;
+use Contena\Core\Framework\Context;
+use Contena\Core\Framework\DataAbstractionLayer\DefinitionInstanceRegistry;
+use Contena\Core\Framework\DataAbstractionLayer\EntityCollection;
+use Contena\Core\Framework\DataAbstractionLayer\Field\Flag\SearchRanking;
+use Contena\Core\Framework\DataAbstractionLayer\Field\TenantField;
+use Contena\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Contena\Core\Framework\DataAbstractionLayer\Search\IdSearchResult;
+use Contena\Core\Framework\Feature;
+use Contena\Elasticsearch\ElasticsearchException;
+use Contena\Elasticsearch\Framework\DataAbstractionLayer\AbstractElasticsearchSearchHydrator;
+use Contena\Elasticsearch\Framework\DataAbstractionLayer\ElasticsearchEntitySearcher;
+use Contena\Elasticsearch\Framework\ElasticsearchHelper;
+
+/**
+ * @internal
+ *
+ * @final
+ */
+class AdminSearcher
+{
+    public function __construct(
+        private readonly Client $client,
+        private readonly AdminSearchRegistry $registry,
+        private readonly AdminElasticsearchHelper $adminEsHelper,
+        private readonly DefinitionInstanceRegistry $definitionInstanceRegistry,
+        private readonly AbstractElasticsearchSearchHydrator $hydrator,
+        private readonly ElasticsearchHelper $esHelper,
+        private readonly string $timeout,
+        private readonly int $termMaxLength,
+        private readonly string $searchType
+    ) {
+    }
+
+    /**
+     * @param array<string> $entities
+     *
+     * @return array<string, array{total: int, data: EntityCollection<covariant \Contena\Core\Framework\DataAbstractionLayer\Entity>, indexer?: string, index?: string}>
+     */
+    public function search(string $term, array $entities, Context $context, int $limit = 5): array
+    {
+        $indexes = [];
+        $notIndexed = [];
+
+        $term = mb_substr(trim($term), 0, $this->termMaxLength);
+        $esTerm = $this->extractTerm($term);
+
+        foreach ($entities as $entityName) {
+            if (!$context->isAllowed($entityName . ':' . AclRoleDefinition::PRIVILEGE_READ)) {
+                continue;
+            }
+
+            if (!$this->registry->hasIndexer($entityName)) {
+                $notIndexed[] = $entityName;
+
+                continue;
+            }
+
+            try {
+                $indexes = array_merge($indexes, $this->buildSearchPayload($entityName, $esTerm, $limit, $context));
+            } catch (ElasticsearchException) {
+                $notIndexed[] = $entityName;
+            }
+        }
+
+        $mapped = [];
+        if ($notIndexed !== []) {
+            $mapped = $this->searchWithoutIndex($notIndexed, $term, $context, $limit);
+        }
+
+        if ($indexes === []) {
+            return $mapped;
+        }
+
+        try {
+            $responses = $this->client->msearch(['body' => $indexes]);
+        } catch (\Throwable $e) {
+            $this->adminEsHelper->logAndThrowException($e);
+
+            return $mapped;
+        }
+
+        $result = $this->parseResponse($responses);
+
+        foreach ($result as $index => $values) {
+            $entityName = $values['hits'][0]['entityName'];
+            $indexer = $this->registry->getIndexer($entityName);
+
+            $data = $indexer->globalData($values, $context);
+            $data['indexer'] = $indexer->getName();
+            $data['index'] = $index;
+
+            $mapped[$indexer->getEntity()] = $data;
+        }
+
+        return $mapped;
+    }
+
+    public function searchIds(string $entityName, Criteria $criteria, Context $context): IdSearchResult
+    {
+        if (!Feature::isActive('ENABLE_OPENSEARCH_FOR_ADMIN_API')) {
+            Feature::throwException('ENABLE_OPENSEARCH_FOR_ADMIN_API', 'Method is unavailable when the feature is active.');
+        }
+
+        if (!$context->isAllowed($entityName . ':' . AclRoleDefinition::PRIVILEGE_READ)) {
+            throw ElasticsearchException::missingPrivilege([
+                $entityName . ':' . AclRoleDefinition::PRIVILEGE_READ,
+            ]);
+        }
+
+        $definition = $this->definitionInstanceRegistry->getByEntityName($entityName);
+        $indexer = $this->registry->getIndexer($entityName);
+        $query = new Search();
+
+        if ($criteria->getTerm()) {
+            $term = $this->extractTerm($criteria->getTerm());
+
+            $query = $indexer->moduleCriteria($term, $this->buildSearch($term));
+            $query->getQueries()->addParameter('minimum_should_match', 1);
+        }
+
+        $query = $this->paginate($query, $criteria->getLimit(), $criteria->getOffset());
+        $query->setTrackTotalHits($criteria->getTotalCountMode() === Criteria::TOTAL_COUNT_MODE_EXACT);
+
+        $this->esHelper->addQueries($definition, $criteria, $query, $context);
+        $this->esHelper->addPostFilters($definition, $criteria, $query, $context);
+        $this->esHelper->addFilters($definition, $criteria, $query, $context);
+        $this->esHelper->addSortings($definition, $criteria, $query, $context);
+        $this->esHelper->handleIds($definition, $criteria, $query, $context);
+        $this->esHelper->addAggregations($definition, $criteria, $query, $context);
+
+        $query = $query->toArray();
+        $query['timeout'] = $this->timeout;
+
+        $request = [
+            'index' => $this->adminEsHelper->getIndex($indexer->getName()),
+            'search_type' => $this->searchType,
+            'body' => $query,
+        ];
+
+        $result = $this->client->search($request);
+
+        $ids = $this->hydrator->hydrate(
+            $this->definitionInstanceRegistry->getByEntityName($entityName),
+            $criteria,
+            $context,
+            $result
+        );
+
+        $ids->addState(ElasticsearchEntitySearcher::RESULT_STATE);
+
+        return $ids;
+    }
+
+    /**
+     * @param list<string> $entities
+     *
+     * @return array<string, array{total: int, data: EntityCollection<covariant \Contena\Core\Framework\DataAbstractionLayer\Entity>}>
+     */
+    private function searchWithoutIndex(array $entities, string $term, Context $context, int $limit): array
+    {
+        $result = [];
+
+        foreach ($entities as $entityName) {
+            if (!$this->definitionInstanceRegistry->has($entityName)) {
+                continue;
+            }
+
+            $criteria = new Criteria();
+            $criteria->setTerm($term);
+            $criteria->setLimit($limit);
+            $criteria->setTotalCountMode(Criteria::TOTAL_COUNT_MODE_EXACT);
+
+            $search = $this->definitionInstanceRegistry->getRepository($entityName)->search($criteria, $context);
+
+            if ($search->getTotal() === 0) {
+                continue;
+            }
+
+            $result[$entityName] = [
+                'total' => $search->getTotal(),
+                'data' => $search->getEntities(),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return array<array<string, mixed>>
+     */
+    private function buildSearchPayload(string $entityName, string $term, int $limit, Context $context): array
+    {
+        $indexer = $this->registry->getIndexer($entityName);
+
+        $alias = $this->adminEsHelper->getIndex($indexer->getName());
+
+        $index = [];
+
+        $index[] = [
+            'index' => $alias,
+            'search_type' => $this->searchType,
+            'allow_no_indices' => true,
+            'ignore_unavailable' => true,
+        ];
+        $query = $indexer->globalCriteria($term, $this->buildSearch($term));
+        $this->addTenantFilter($entityName, $query, $context);
+        $this->paginate($query, $limit);
+
+        $query = $query->toArray();
+
+        $query['timeout'] = $this->timeout;
+
+        $index[] = $query;
+
+        return $index;
+    }
+
+    private function addTenantFilter(string $entityName, Search $search, Context $context): void
+    {
+        if ($context->hasGlobalTenantAccess()) {
+            return;
+        }
+
+        $definition = $this->definitionInstanceRegistry->getByEntityName($entityName);
+        if (!$definition->getFields()->filterInstance(TenantField::class)->first() instanceof TenantField) {
+            return;
+        }
+
+        $tenantId = $context->getTenantId();
+        $query = $tenantId === null
+            ? new BoolQuery([BoolQuery::MUST_NOT => new ExistsQuery('tenantId')])
+            : new TermQuery('tenantId', $tenantId);
+
+        $search->addQuery($query, BoolQuery::FILTER);
+    }
+
+    private function buildSearch(string $term): Search
+    {
+        $search = new Search();
+        $splitTerms = explode(' ', $term);
+        $lastPart = (string) end($splitTerms);
+        $prefixTerm = mb_strtolower($lastPart);
+
+        $search->addQuery(
+            new MatchQuery('completion', $term, ['boost' => SearchRanking::HIGH_SEARCH_RANKING]),
+            BoolQuery::SHOULD
+        );
+        $search->addQuery(
+            new MatchQuery('completion.ngram', $term, ['boost' => SearchRanking::LOW_SEARCH_RANKING]),
+            BoolQuery::SHOULD
+        );
+
+        if (preg_match('/^[\p{L}0-9]+$/u', $lastPart)) {
+            $search->addQuery(
+                new PrefixQuery('completion', $prefixTerm, ['boost' => SearchRanking::MIDDLE_SEARCH_RANKING]),
+                BoolQuery::SHOULD
+            );
+
+            $term .= '*';
+        }
+
+        $search->addQuery(
+            new SimpleQueryStringQuery($term, [
+                'fields' => ['text'],
+                'lenient' => true,
+                'boost' => SearchRanking::LOW_SEARCH_RANKING,
+            ]),
+            BoolQuery::SHOULD
+        );
+
+        return $search;
+    }
+
+    private function paginate(Search $search, ?int $limit = null, ?int $offset = null): Search
+    {
+        if ($limit !== null) {
+            $search->setSize($limit);
+        }
+
+        if ($offset !== null) {
+            $search->setFrom($offset);
+        }
+
+        return $search;
+    }
+
+    private function extractTerm(string $rawTerm): string
+    {
+        $term = mb_substr(trim($rawTerm), 0, $this->termMaxLength);
+
+        $term = (string) mb_eregi_replace('\s(or)\s', '|', $term);
+        $term = (string) mb_eregi_replace('\s(and)\s', ' + ', $term);
+
+        return (string) mb_eregi_replace('\s(not)\s', ' -', $term);
+    }
+
+    /**
+     * @param array<mixed> $rawResponse
+     *
+     * @return array<string, array{
+     *     total: int,
+     *     hits: list<array{
+     *         id: string,
+     *         score: float,
+     *         parameters: array<string, mixed>,
+     *         entityName: string
+     *     }>
+     * }>
+     */
+    private function parseResponse(array $rawResponse): array
+    {
+        if (!\array_key_exists('responses', $rawResponse) || !\is_array($rawResponse['responses'])) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($rawResponse['responses'] as $response) {
+            if (!isset($response['hits']['hits']) || !\is_array($response['hits']['hits'])) {
+                continue;
+            }
+
+            if ($response['hits']['hits'] === []) {
+                continue;
+            }
+
+            $index = (string) $response['hits']['hits'][0]['_index'];
+            $total = (int) $response['hits']['total']['value'];
+            $hits = [];
+
+            foreach ($response['hits']['hits'] as $hit) {
+                $hits[] = [
+                    'id' => (string) $hit['_id'],
+                    'score' => (float) $hit['_score'],
+                    'parameters' => $hit['_source']['parameters'],
+                    'entityName' => (string) $hit['_source']['entityName'],
+                ];
+            }
+
+            $result[$index] = [
+                'total' => $total,
+                'hits' => $hits,
+            ];
+        }
+
+        return $result;
+    }
+}

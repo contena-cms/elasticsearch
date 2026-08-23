@@ -1,0 +1,66 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Admin;
+
+use Contena\Core\Framework\Adapter\Request\RequestParamHelper;
+use Contena\Core\Framework\Api\Serializer\JsonEntityEncoder;
+use Contena\Core\Framework\Context;
+use Contena\Core\Framework\DataAbstractionLayer\DefinitionInstanceRegistry;
+use Contena\Core\Framework\DataAbstractionLayer\Entity;
+use Contena\Core\Framework\DataAbstractionLayer\EntityCollection;
+use Contena\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Contena\Core\PlatformRequest;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+
+/**
+ * @internal
+ */
+#[Route(defaults: [PlatformRequest::ATTRIBUTE_ROUTE_SCOPE => ['administration']])]
+final readonly class AdminSearchController
+{
+    public function __construct(
+        private AdminSearcher $searcher,
+        private DefinitionInstanceRegistry $definitionRegistry,
+        private JsonEntityEncoder $entityEncoder,
+        private AdminElasticsearchHelper $adminEsHelper
+    ) {
+    }
+
+    #[Route(path: '/api/_admin/es-search', name: 'api.admin.es-search', methods: ['POST'])]
+    public function elastic(Request $request, Context $context): Response
+    {
+        if ($this->adminEsHelper->isEnabled() === false) {
+            throw ElasticsearchAdminException::esNotEnabled();
+        }
+
+        $term = trim($request->request->getString('term'));
+        $entities = $request->request->all('entities');
+
+        if ($term === '') {
+            throw ElasticsearchAdminException::missingTermParameter();
+        }
+
+        $limit = RequestParamHelper::get($request, 'limit', 10);
+
+        $results = $this->searcher->search($term, $entities, $context, $limit);
+
+        foreach ($results as $entityName => $result) {
+            $definition = $this->definitionRegistry->getByEntityName($entityName);
+
+            /** @var EntityCollection<Entity> $entityCollection */
+            $entityCollection = $result['data'];
+            $entities = [];
+
+            foreach ($entityCollection->getElements() as $key => $entity) {
+                $entities[$key] = $this->entityEncoder->encode(new Criteria(), $definition, $entity, '/api');
+            }
+
+            $results[$entityName]['data'] = $entities;
+        }
+
+        return new JsonResponse(['data' => $results]);
+    }
+}

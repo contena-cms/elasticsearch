@@ -1,0 +1,188 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Admin\Indexer;
+
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use Contena\Core\Content\LandingPage\Aggregate\LandingPageTag\LandingPageTagDefinition;
+use Contena\Core\Content\LandingPage\Aggregate\LandingPageTranslation\LandingPageTranslationDefinition;
+use Contena\Core\Content\LandingPage\LandingPageCollection;
+use Contena\Core\Content\LandingPage\LandingPageDefinition;
+use Contena\Core\Framework\Context;
+use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IterableQuery;
+use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IteratorFactory;
+use Contena\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Contena\Core\Framework\DataAbstractionLayer\Event\EntityWrittenContainerEvent;
+use Contena\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Contena\Core\Framework\Feature;
+use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
+use Contena\Core\Framework\Uuid\Uuid;
+use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
+use Contena\Elasticsearch\Framework\ElasticsearchFieldBuilder;
+
+final class LandingPageAdminSearchIndexer extends AbstractAdminIndexer
+{
+    /**
+     * @internal
+     *
+     * @param EntityRepository<LandingPageCollection> $repository
+     */
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly IteratorFactory $factory,
+        private readonly EntityRepository $repository,
+        private readonly ElasticsearchFieldBuilder $fieldBuilder,
+        private readonly int $indexingBatchSize
+    ) {
+    }
+
+    public function getDecorated(): AbstractAdminIndexer
+    {
+        throw new DecorationPatternException(self::class);
+    }
+
+    public function getEntity(): string
+    {
+        return LandingPageDefinition::ENTITY_NAME;
+    }
+
+    public function getName(): string
+    {
+        return 'landing-page-listing';
+    }
+
+    public function getIterator(): IterableQuery
+    {
+        return $this->factory->createIterator($this->getEntity(), null, $this->indexingBatchSize);
+    }
+
+    public function getUpdatedIds(EntityWrittenContainerEvent $event): array
+    {
+        $landingPageIds = $event->getPrimaryKeysWithPropertyChange($this->getEntity(), [
+            'active',
+        ]);
+
+        $translations = $event->getPrimaryKeysWithPropertyChange(LandingPageTranslationDefinition::ENTITY_NAME, [
+            'name',
+        ]);
+
+        $tags = $event->getPrimaryKeysWithPropertyChange(LandingPageTagDefinition::ENTITY_NAME, [
+            'tagId',
+        ]);
+
+        foreach (array_merge($translations, $tags) as $pks) {
+            if (isset($pks['landingPageId'])) {
+                $landingPageIds[] = $pks['landingPageId'];
+            }
+        }
+
+        return array_values(array_unique(array_filter($landingPageIds, '\is_string')));
+    }
+
+    public function mapping(array $mapping): array
+    {
+        $languageFields = $this->fieldBuilder->translated(AbstractElasticsearchDefinition::KEYWORD_FIELD);
+
+        $override = [
+            'active' => AbstractElasticsearchDefinition::BOOLEAN_FIELD,
+            'name' => $languageFields,
+            'createdAt' => ElasticsearchFieldBuilder::datetime(),
+            'tags' => ElasticsearchFieldBuilder::nested(),
+        ];
+
+        $mapping['properties'] ??= [];
+        $mapping['properties'] = array_merge($mapping['properties'], $override);
+
+        return $mapping;
+    }
+
+    public function globalData(array $result, Context $context): array
+    {
+        $ids = array_column($result['hits'], 'id');
+
+        return [
+            'total' => (int) $result['total'],
+            'data' => $this->repository->search(new Criteria($ids), $context)->getEntities(),
+        ];
+    }
+
+    /**
+     * @return array<string, array{
+     *     id: string,
+     *     text: string,
+     *     completion: list<string>,
+     *     name?: array<string, string>,
+     *     active?: bool,
+     *     tags?: list<array{
+     *         id: string,
+     *         _count: int
+     *     }>,
+     *     createdAt?: string|null
+     * }>
+     */
+    public function fetch(array $ids): array
+    {
+        $data = $this->connection->fetchAllAssociative(
+            <<<'SQL'
+            SELECT LOWER(HEX(landing_page.id)) as id,
+                   LOWER(HEX(landing_page.tenant_id)) as tenantId,
+                   GROUP_CONCAT(DISTINCT landing_page_translation.name SEPARATOR " ") as name,
+                   JSON_ARRAYAGG(JSON_OBJECT(
+                       'languageId', LOWER(HEX(landing_page_translation.language_id)),
+                       'name', landing_page_translation.name
+                   )) as translatedNames,
+                   GROUP_CONCAT(DISTINCT tag.name SEPARATOR " ") as tags,
+                   GROUP_CONCAT(LOWER(HEX(tag.id)) SEPARATOR " ") as tagIds,
+                   landing_page.active AS active,
+                   landing_page.created_at as createdAt
+            FROM landing_page
+                INNER JOIN landing_page_translation
+                    ON landing_page.id = landing_page_translation.landing_page_id
+                LEFT JOIN landing_page_tag
+                    ON landing_page.id = landing_page_tag.landing_page_id
+                LEFT JOIN tag
+                    ON landing_page_tag.tag_id = tag.id
+            WHERE landing_page.id IN (:ids)
+            GROUP BY landing_page.id
+SQL,
+            [
+                'ids' => Uuid::fromHexToBytesList($ids),
+            ],
+            [
+                'ids' => ArrayParameterType::BINARY,
+            ]
+        );
+
+        $mapped = [];
+        foreach ($data as $row) {
+            $id = (string) $row['id'];
+            $text = \implode(' ', array_filter([$row['name'] ?? '', $row['tags'] ?? '', $id]));
+            $translatedNames = $this->decodeTranslatedValues((string) ($row['translatedNames'] ?? ''));
+            $completion = $this->buildCompletion(array_values($translatedNames) ?: [(string) ($row['name'] ?? '')]);
+
+            if (!Feature::isActive('ENABLE_OPENSEARCH_FOR_ADMIN_API')) {
+                $mapped[$id] = [
+                    'id' => $id,
+                    'tenantId' => $row['tenantId'] ?? null,
+                    'text' => \strtolower($text),
+                    'completion' => $completion,
+                ];
+
+                continue;
+            }
+
+            $mapped[$id] = [
+                'id' => $id,
+                'tenantId' => $row['tenantId'] ?? null,
+                'text' => \strtolower($text),
+                'completion' => $completion,
+                'name' => $translatedNames,
+                'active' => (bool) $row['active'],
+                'tags' => $this->parseTagIds($row),
+                'createdAt' => $this->formatDateTime($row, 'createdAt'),
+            ];
+        }
+
+        return $mapped;
+    }
+}

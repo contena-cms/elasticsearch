@@ -1,0 +1,512 @@
+<?php declare(strict_types=1);
+
+namespace Contena\Elasticsearch\Admin;
+
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception;
+use OpenSearch\Client;
+use OpenSearch\Exception\OpenSearchExceptionInterface;
+use Psr\Clock\ClockInterface;
+use Psr\Http\Client\ClientExceptionInterface;
+use Psr\Log\LoggerInterface;
+use Contena\Core\Defaults;
+use Contena\Core\Framework\Api\Context\ChannelApiSource;
+use Contena\Core\Framework\DataAbstractionLayer\Event\EntityWrittenContainerEvent;
+use Contena\Core\Framework\Event\ProgressAdvancedEvent;
+use Contena\Core\Framework\Event\ProgressFinishedEvent;
+use Contena\Core\Framework\Event\ProgressStartedEvent;
+use Contena\Core\Framework\Uuid\Uuid;
+use Contena\Elasticsearch\Admin\Indexer\AbstractAdminIndexer;
+use Contena\Elasticsearch\ElasticsearchException;
+use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
+use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\Messenger\Attribute\AsMessageHandler;
+use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
+
+/**
+ * @internal
+ *
+ * @final
+ */
+#[AsMessageHandler(handles: AdminSearchIndexingMessage::class)]
+class AdminSearchRegistry implements EventSubscriberInterface
+{
+    /**
+     * @var array<string, mixed>
+     */
+    private readonly array $config;
+
+    /**
+     * @var array<string, AbstractAdminIndexer>|null
+     */
+    private ?array $indexers = null;
+
+    /**
+     * @param iterable<AbstractAdminIndexer> $indexer
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $mapping
+     */
+    public function __construct(
+        private readonly iterable $indexer,
+        private readonly Connection $connection,
+        private readonly MessageBusInterface $queue,
+        private readonly EventDispatcherInterface $dispatcher,
+        private readonly Client $client,
+        private readonly AdminElasticsearchHelper $adminEsHelper,
+        private readonly LoggerInterface $logger,
+        array $config,
+        private readonly array $mapping,
+        private readonly string $environment,
+        private readonly ClockInterface $clock,
+    ) {
+        if (isset($config['settings']['index'])) {
+            if (\array_key_exists('number_of_shards', $config['settings']['index']) && $config['settings']['index']['number_of_shards'] === null) {
+                unset($config['settings']['index']['number_of_shards']);
+            }
+
+            if (\array_key_exists('number_of_replicas', $config['settings']['index']) && $config['settings']['index']['number_of_replicas'] === null) {
+                unset($config['settings']['index']['number_of_replicas']);
+            }
+        }
+
+        $this->config = $config;
+    }
+
+    public function __invoke(AdminSearchIndexingMessage $message): void
+    {
+        $indexer = $this->getIndexer($message->getEntity());
+
+        $this->push($indexer, $message);
+    }
+
+    public static function getSubscribedEvents(): array
+    {
+        return [
+            EntityWrittenContainerEvent::class => [
+                ['refresh', -1000],
+            ],
+        ];
+    }
+
+    public function iterate(AdminIndexingBehavior $indexingBehavior): void
+    {
+        if (!$this->adminEsHelper->isEnabled()) {
+            return;
+        }
+
+        $indexers = $this->getIndexersArray();
+        if ($indexers === []) {
+            return;
+        }
+
+        $entities = array_keys($indexers);
+
+        if ($indexingBehavior->getOnlyEntities()) {
+            $entities = array_intersect($entities, $indexingBehavior->getOnlyEntities());
+        } elseif ($indexingBehavior->getSkipEntities()) {
+            $entities = array_diff($entities, $indexingBehavior->getSkipEntities());
+        }
+
+        $indices = $this->createIndices($entities);
+
+        foreach ($entities as $entityName) {
+            $indexer = $indexers[$entityName];
+            $iterator = $indexer->getIterator();
+
+            $this->dispatcher->dispatch(new ProgressStartedEvent($indexer->getName(), $iterator->fetchCount()));
+
+            while ($ids = $iterator->fetch()) {
+                $ids = array_values($ids);
+
+                // we provide no queue when the data is sent by the admin
+                if ($indexingBehavior->getNoQueue()) {
+                    $this->__invoke(new AdminSearchIndexingMessage($indexer->getEntity(), $indexer->getName(), $indices, $ids));
+                } else {
+                    $this->queue->dispatch(new AdminSearchIndexingMessage($indexer->getEntity(), $indexer->getName(), $indices, $ids));
+                }
+
+                $this->dispatcher->dispatch(new ProgressAdvancedEvent(\count($ids)));
+            }
+
+            $this->dispatcher->dispatch(new ProgressFinishedEvent($indexer->getName()));
+        }
+
+        $this->swapAlias($indices);
+    }
+
+    public function refresh(EntityWrittenContainerEvent $event): void
+    {
+        if (!$this->adminEsHelper->isEnabled() || !$this->isIndexedEntityWritten($event)) {
+            return;
+        }
+
+        $indexers = $this->getIndexersArray();
+        if ($indexers === []) {
+            return;
+        }
+
+        if ($this->adminEsHelper->getRefreshIndices()) {
+            try {
+                $this->refreshIndices();
+            } catch (ClientExceptionInterface|OpenSearchExceptionInterface $e) {
+                $this->logger->error('Could not refresh indices. Run "bin/console es:admin:mapping:update" & "bin/console es:admin:index" to update indices and reindex. Error: ' . $e->getMessage());
+
+                return;
+            }
+        }
+
+        /** @var array<string, string> $indices */
+        $indices = $this->connection->fetchAllKeyValue('SELECT `alias`, `index` FROM admin_elasticsearch_index_task');
+        if ($indices === []) {
+            return;
+        }
+
+        $isChannelSource = $event->getContext()->getSource() instanceof ChannelApiSource;
+
+        foreach ($indexers as $indexer) {
+            $ids = $indexer->getUpdatedIds($event);
+            $deletedIds = $event->getDeletedPrimaryKeys($indexer->getEntity());
+            $ids = array_values(array_diff($ids, $deletedIds));
+
+            if ($ids === [] && $deletedIds === []) {
+                continue;
+            }
+
+            $msg = new AdminSearchIndexingMessage($indexer->getEntity(), $indexer->getName(), $indices, $ids, $deletedIds);
+
+            // if the event is triggered from storefront or channel API, we dispatch the message to the queue to not slow down the request
+            if ($isChannelSource) {
+                $this->queue->dispatch($msg);
+
+                continue;
+            }
+
+            // otherwise we invoke the message handler directly
+            $this->__invoke($msg);
+        }
+    }
+
+    /**
+     * @return iterable<AbstractAdminIndexer>
+     */
+    public function getIndexers(): iterable
+    {
+        return $this->indexer;
+    }
+
+    public function getIndexer(string $name): AbstractAdminIndexer
+    {
+        $indexers = $this->getIndexersArray();
+        $indexer = $indexers[$name] ?? null;
+        if ($indexer) {
+            return $indexer;
+        }
+
+        throw ElasticsearchException::indexingError([\sprintf('Indexer for name %s not found', $name)]);
+    }
+
+    public function hasIndexer(string $name): bool
+    {
+        $indexers = $this->getIndexersArray();
+
+        return isset($indexers[$name]);
+    }
+
+    public function updateMappings(): void
+    {
+        foreach ($this->indexer as $indexer) {
+            $mapping = $this->buildMapping($indexer);
+
+            $this->client->indices()->putMapping([
+                'index' => $this->adminEsHelper->getIndex($indexer->getName()),
+                'body' => $mapping,
+            ]);
+        }
+    }
+
+    private function isIndexedEntityWritten(EntityWrittenContainerEvent $event): bool
+    {
+        // only index entities that are written in the live version
+        if ($event->getContext()->getVersionId() !== Defaults::LIVE_VERSION) {
+            return false;
+        }
+
+        foreach ($this->indexer as $indexer) {
+            $ids = $event->getPrimaryKeys($indexer->getEntity());
+
+            if ($ids !== []) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function push(AbstractAdminIndexer $indexer, AdminSearchIndexingMessage $message): void
+    {
+        $indices = $message->getIndices();
+
+        $ids = $message->getIds();
+        $alias = $this->adminEsHelper->getIndex($indexer->getName());
+
+        if (!isset($indices[$alias])) {
+            return;
+        }
+
+        $data = $ids !== [] ? $indexer->fetch($ids) : [];
+        $toRemove = array_filter($ids, static fn (string $id): bool => !isset($data[$id]));
+        $toRemove = array_unique(array_merge($toRemove, $message->getToRemoveIds()));
+
+        $documents = [];
+        foreach ($data as $id => $document) {
+            $documents[] = ['index' => ['_id' => $id]];
+
+            $documents[] = \array_replace(
+                ['entityName' => $indexer->getEntity(), 'parameters' => [], 'textBoosted' => '', 'text' => '', 'completion' => []],
+                $document
+            );
+        }
+
+        foreach ($toRemove as $id) {
+            $documents[] = ['delete' => ['_id' => $id]];
+        }
+
+        $arguments = [
+            'index' => $indices[$alias],
+            'body' => $documents,
+        ];
+
+        $result = $this->client->bulk($arguments);
+
+        if (\is_array($result) && ((bool) ($result['errors'] ?? false)) !== false) {
+            $errors = $this->parseErrors($result);
+
+            throw ElasticsearchException::indexingError($errors);
+        }
+    }
+
+    /**
+     * @param array<string> $entities
+     *
+     * @throws Exception
+     *
+     * @return array<string, string>
+     */
+    private function createIndices(array $entities): array
+    {
+        $indexTasks = [];
+        $indices = [];
+        foreach ($entities as $entityName) {
+            $indexer = $this->getIndexer($entityName);
+            $alias = $this->adminEsHelper->getIndex($indexer->getName());
+            $index = $alias . '_' . $this->clock->now()->getTimestamp();
+
+            if ($this->client->indices()->exists(['index' => $index])) {
+                continue;
+            }
+
+            $indices[$alias] = $index;
+
+            $this->create($indexer, $index, $alias);
+
+            $iterator = $indexer->getIterator();
+            $indexTasks[] = [
+                'id' => Uuid::randomBytes(),
+                '`entity`' => $indexer->getEntity(),
+                '`index`' => $index,
+                '`alias`' => $alias,
+                '`doc_count`' => $iterator->fetchCount(),
+            ];
+        }
+
+        if ($indices === []) {
+            return $indices;
+        }
+
+        $this->connection->executeStatement(
+            'DELETE FROM admin_elasticsearch_index_task WHERE `entity` IN (:entities)',
+            ['entities' => $entities],
+            ['entities' => ArrayParameterType::STRING]
+        );
+
+        foreach ($indexTasks as $task) {
+            $this->connection->insert('admin_elasticsearch_index_task', $task);
+        }
+
+        return $indices;
+    }
+
+    private function refreshIndices(): void
+    {
+        $indexTasks = [];
+        $entities = [];
+        foreach ($this->indexer as $indexer) {
+            $alias = $this->adminEsHelper->getIndex($indexer->getName());
+
+            if ($this->client->indices()->existsAlias(['name' => $alias])) {
+                continue;
+            }
+
+            $index = $alias . '_' . $this->clock->now()->getTimestamp();
+            $this->create($indexer, $index, $alias);
+
+            $entities[] = $indexer->getEntity();
+
+            $iterator = $indexer->getIterator();
+            $indexTasks[] = [
+                'id' => Uuid::randomBytes(),
+                '`entity`' => $indexer->getEntity(),
+                '`index`' => $index,
+                '`alias`' => $alias,
+                '`doc_count`' => $iterator->fetchCount(),
+            ];
+        }
+
+        if ($entities === []) {
+            return;
+        }
+
+        $this->connection->executeStatement(
+            'DELETE FROM admin_elasticsearch_index_task WHERE `entity` IN (:entities)',
+            ['entities' => $entities],
+            ['entities' => ArrayParameterType::STRING]
+        );
+
+        foreach ($indexTasks as $task) {
+            $this->connection->insert('admin_elasticsearch_index_task', $task);
+        }
+    }
+
+    private function create(AbstractAdminIndexer $indexer, string $index, string $alias): void
+    {
+        $mapping = $this->buildMapping($indexer);
+
+        $body = array_merge(
+            $this->config,
+            ['mappings' => $mapping]
+        );
+
+        $this->client->indices()->create([
+            'index' => $index,
+            'body' => $body,
+        ]);
+
+        $this->createAliasIfNotExisting($index, $alias);
+    }
+
+    /**
+     * @param array<string, array<array<string, mixed>>> $result
+     *
+     * @return list<array{index: string, id: string, type: string, reason: string}>
+     */
+    private function parseErrors(array $result): array
+    {
+        $errors = [];
+        foreach ($result['items'] as $item) {
+            $item = $item['index'] ?? $item['delete'];
+
+            if (\in_array($item['status'], [200, 201], true)) {
+                continue;
+            }
+
+            $errors[] = [
+                'index' => $item['_index'],
+                'id' => $item['_id'],
+                'type' => $item['error']['type'] ?? $item['_type'],
+                'reason' => $item['error']['reason'] ?? $item['result'],
+            ];
+        }
+
+        return $errors;
+    }
+
+    private function createAliasIfNotExisting(string $index, string $alias): void
+    {
+        if ($this->client->indices()->existsAlias(['name' => $alias])) {
+            return;
+        }
+
+        $this->putAlias($index, $alias);
+    }
+
+    /**
+     * @param array<string, string> $indices
+     */
+    private function swapAlias(array $indices): void
+    {
+        foreach ($indices as $alias => $index) {
+            if (!$this->client->indices()->existsAlias(['name' => $alias])) {
+                $this->putAlias($index, $alias);
+
+                continue;
+            }
+
+            $current = $this->client->indices()->getAlias(['name' => $alias]);
+
+            if (!isset($current[$index])) {
+                $this->putAlias($index, $alias);
+            }
+
+            unset($current[$index]);
+            $current = array_keys($current);
+
+            foreach ($current as $value) {
+                $this->client->indices()->delete(['index' => $value]);
+            }
+        }
+    }
+
+    private function putAlias(string $index, string $alias): void
+    {
+        $this->client->indices()->refresh([
+            'index' => $index,
+        ]);
+        $this->client->indices()->putAlias(['index' => $index, 'name' => $alias]);
+    }
+
+    /**
+     * @return array<mixed>
+     */
+    private function buildMapping(AbstractAdminIndexer $indexer): array
+    {
+        $properties = [
+            'properties' => [
+                'id' => AbstractElasticsearchDefinition::KEYWORD_FIELD,
+                'textBoosted' => AbstractAdminIndexer::TEXT_FIELD,
+                'text' => AbstractAdminIndexer::TEXT_FIELD,
+                'completion' => AbstractAdminIndexer::COMPLETION_FIELD,
+                'tenantId' => AbstractElasticsearchDefinition::KEYWORD_FIELD,
+                'entityName' => AbstractElasticsearchDefinition::KEYWORD_FIELD,
+                'parameters' => AbstractElasticsearchDefinition::KEYWORD_FIELD,
+            ],
+        ];
+
+        $mapping = $indexer->mapping($properties);
+
+        $debug = $this->environment === 'dev' || $this->environment === 'test';
+
+        if (!$debug) {
+            $mapping['_source'] = ['includes' => ['id', 'text', 'textBoosted', 'entityName', 'parameters']];
+        }
+
+        return array_merge_recursive($mapping, $this->mapping);
+    }
+
+    /**
+     * @return array<string, AbstractAdminIndexer>
+     */
+    private function getIndexersArray(): array
+    {
+        if ($this->indexers !== null) {
+            return $this->indexers;
+        }
+
+        $this->indexers = $this->indexer instanceof \Traversable
+            ? iterator_to_array($this->indexer)
+            : $this->indexer;
+
+        return $this->indexers;
+    }
+}
