@@ -2,8 +2,6 @@
 
 namespace Contena\Elasticsearch;
 
-use OpenSearchDSL\BuilderInterface;
-use OpenSearchDSL\Query\Compound\BoolQuery;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\EntityDefinitionQueryHelper;
 use Contena\Core\Framework\DataAbstractionLayer\DefinitionInstanceRegistry;
@@ -11,6 +9,8 @@ use Contena\Core\Framework\DataAbstractionLayer\Field\TranslatedField;
 use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
 use Contena\Core\System\CustomField\CustomFieldService;
 use Contena\Elasticsearch\Blog\SearchFieldConfig;
+use OpenSearchDSL\BuilderInterface;
+use OpenSearchDSL\Query\Compound\BoolQuery;
 
 /**
  * @phpstan-type SearchConfig array{and_logic: string, field: string, tokenize: int, ranking: float|int}

@@ -2,8 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin\Indexer;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
 use Contena\Core\Content\Media\Aggregate\MediaTag\MediaTagDefinition;
 use Contena\Core\Content\Media\Aggregate\MediaTranslation\MediaTranslationDefinition;
 use Contena\Core\Content\Media\MediaCollection;
@@ -19,6 +17,8 @@ use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
 use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
 use Contena\Elasticsearch\Framework\ElasticsearchFieldBuilder;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 
 final class MediaAdminSearchIndexer extends AbstractAdminIndexer
 {

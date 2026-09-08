@@ -2,12 +2,12 @@
 
 namespace Contena\Elasticsearch\Framework\Command;
 
-use Doctrine\DBAL\Connection;
-use OpenSearch\Client;
 use Contena\Core\Defaults;
 use Contena\Core\Framework\DataAbstractionLayer\Command\ConsoleProgressTrait;
 use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Elasticsearch\ElasticsearchException;
+use Doctrine\DBAL\Connection;
+use OpenSearch\Client;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\ProgressBar;

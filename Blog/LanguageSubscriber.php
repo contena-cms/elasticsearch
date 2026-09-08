@@ -2,11 +2,11 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use OpenSearch\Client;
 use Contena\Core\Framework\DataAbstractionLayer\EntityWriteResult;
 use Contena\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
 use Contena\Elasticsearch\Framework\ElasticsearchRegistry;
+use OpenSearch\Client;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 /**

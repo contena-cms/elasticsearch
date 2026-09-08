@@ -2,26 +2,6 @@
 
 namespace Contena\Elasticsearch\Framework\DataAbstractionLayer;
 
-use OpenSearchDSL\Aggregation\AbstractAggregation;
-use OpenSearchDSL\Aggregation\Bucketing;
-use OpenSearchDSL\Aggregation\Bucketing\CompositeAggregation;
-use OpenSearchDSL\Aggregation\Bucketing\NestedAggregation;
-use OpenSearchDSL\Aggregation\Bucketing\ReverseNestedAggregation;
-use OpenSearchDSL\Aggregation\Metric;
-use OpenSearchDSL\Aggregation\Metric\ValueCountAggregation;
-use OpenSearchDSL\BuilderInterface;
-use OpenSearchDSL\Query\Compound\BoolQuery;
-use OpenSearchDSL\Query\Compound\DisMaxQuery;
-use OpenSearchDSL\Query\FullText\MultiMatchQuery;
-use OpenSearchDSL\Query\Joining\NestedQuery;
-use OpenSearchDSL\Query\TermLevel\ExistsQuery;
-use OpenSearchDSL\Query\TermLevel\PrefixQuery;
-use OpenSearchDSL\Query\TermLevel\RangeQuery;
-use OpenSearchDSL\Query\TermLevel\TermQuery;
-use OpenSearchDSL\Query\TermLevel\TermsQuery;
-use OpenSearchDSL\Query\TermLevel\WildcardQuery;
-use OpenSearchDSL\Sort\FieldSort;
-use OpenSearchDSL\Sort\NestedSort;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\EntityDefinitionQueryHelper;
 use Contena\Core\Framework\DataAbstractionLayer\EntityDefinition;
@@ -66,6 +46,26 @@ use Contena\Elasticsearch\ElasticsearchException;
 use Contena\Elasticsearch\Framework\ElasticsearchDateHistogramAggregation;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
 use Contena\Elasticsearch\Sort\CountSort;
+use OpenSearchDSL\Aggregation\AbstractAggregation;
+use OpenSearchDSL\Aggregation\Bucketing;
+use OpenSearchDSL\Aggregation\Bucketing\CompositeAggregation;
+use OpenSearchDSL\Aggregation\Bucketing\NestedAggregation;
+use OpenSearchDSL\Aggregation\Bucketing\ReverseNestedAggregation;
+use OpenSearchDSL\Aggregation\Metric;
+use OpenSearchDSL\Aggregation\Metric\ValueCountAggregation;
+use OpenSearchDSL\BuilderInterface;
+use OpenSearchDSL\Query\Compound\BoolQuery;
+use OpenSearchDSL\Query\Compound\DisMaxQuery;
+use OpenSearchDSL\Query\FullText\MultiMatchQuery;
+use OpenSearchDSL\Query\Joining\NestedQuery;
+use OpenSearchDSL\Query\TermLevel\ExistsQuery;
+use OpenSearchDSL\Query\TermLevel\PrefixQuery;
+use OpenSearchDSL\Query\TermLevel\RangeQuery;
+use OpenSearchDSL\Query\TermLevel\TermQuery;
+use OpenSearchDSL\Query\TermLevel\TermsQuery;
+use OpenSearchDSL\Query\TermLevel\WildcardQuery;
+use OpenSearchDSL\Sort\FieldSort;
+use OpenSearchDSL\Sort\NestedSort;
 
 class CriteriaParser
 {

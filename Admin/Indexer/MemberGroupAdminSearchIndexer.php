@@ -2,8 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin\Indexer;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IterableQuery;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IteratorFactory;
@@ -15,6 +13,8 @@ use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Core\System\Member\Aggregate\MemberGroup\MemberGroupCollection;
 use Contena\Core\System\Member\Aggregate\MemberGroup\MemberGroupDefinition;
 use Contena\Core\System\Member\Aggregate\MemberGroupTranslation\MemberGroupTranslationDefinition;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 
 final class MemberGroupAdminSearchIndexer extends AbstractAdminIndexer
 {

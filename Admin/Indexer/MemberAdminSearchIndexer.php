@@ -2,8 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin\Indexer;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IterableQuery;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IteratorFactory;
@@ -19,6 +17,8 @@ use Contena\Core\System\Member\MemberCollection;
 use Contena\Core\System\Member\MemberDefinition;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
 use Contena\Elasticsearch\Framework\ElasticsearchFieldBuilder;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 
 final class MemberAdminSearchIndexer extends AbstractAdminIndexer
 {

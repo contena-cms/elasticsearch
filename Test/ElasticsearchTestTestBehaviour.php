@@ -2,12 +2,6 @@
 
 namespace Contena\Elasticsearch\Test;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
-use OpenSearch\Client;
-use PHPUnit\Framework\Attributes\After;
-use PHPUnit\Framework\Attributes\Before;
-use Psr\Cache\CacheItemPoolInterface;
 use Contena\Core\Defaults;
 use Contena\Core\DevOps\Environment\EnvironmentHelper;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\EntityAggregator;
@@ -21,6 +15,12 @@ use Contena\Elasticsearch\Framework\DataAbstractionLayer\CriteriaParser;
 use Contena\Elasticsearch\Framework\DataAbstractionLayer\ElasticsearchEntityAggregator;
 use Contena\Elasticsearch\Framework\DataAbstractionLayer\ElasticsearchEntitySearcher;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use OpenSearch\Client;
+use PHPUnit\Framework\Attributes\After;
+use PHPUnit\Framework\Attributes\Before;
+use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\DependencyInjection\ContainerInterface;

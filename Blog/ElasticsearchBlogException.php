@@ -2,8 +2,8 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use OpenSearch\Exception\BadRequestHttpException;
 use Contena\Core\Framework\HttpException;
+use OpenSearch\Exception\BadRequestHttpException;
 use Symfony\Component\HttpFoundation\Response;
 
 class ElasticsearchBlogException extends HttpException

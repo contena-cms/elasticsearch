@@ -2,11 +2,11 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use Doctrine\DBAL\Connection;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Search\Term\Filter\AbstractTokenFilter;
 use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
 use Contena\Core\Framework\Uuid\Uuid;
+use Doctrine\DBAL\Connection;
 
 class StopwordTokenFilter extends AbstractTokenFilter
 {

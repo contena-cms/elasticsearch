@@ -2,7 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin\Indexer;
 
-use OpenSearchDSL\Search;
 use Contena\Core\Defaults;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IterableQuery;
@@ -11,6 +10,7 @@ use Contena\Core\Framework\DataAbstractionLayer\EntityCollection;
 use Contena\Core\Framework\DataAbstractionLayer\Event\EntityWrittenContainerEvent;
 use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
+use OpenSearchDSL\Search;
 
 abstract class AbstractAdminIndexer
 {

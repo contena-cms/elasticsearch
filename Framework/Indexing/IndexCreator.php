@@ -2,13 +2,13 @@
 
 namespace Contena\Elasticsearch\Framework\Indexing;
 
-use OpenSearch\Client;
 use Contena\Core\Framework\Context;
 use Contena\Elasticsearch\ElasticsearchException;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
 use Contena\Elasticsearch\Framework\Indexing\Event\ElasticsearchIndexConfigEvent;
 use Contena\Elasticsearch\Framework\Indexing\Event\ElasticsearchIndexCreatedEvent;
+use OpenSearch\Client;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 class IndexCreator

@@ -2,11 +2,11 @@
 
 namespace Contena\Elasticsearch;
 
-use OpenSearchDSL\BuilderInterface;
-use OpenSearchDSL\Query\Compound\DisMaxQuery;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Field\TranslatedField;
 use Contena\Elasticsearch\Blog\SearchFieldConfig;
+use OpenSearchDSL\BuilderInterface;
+use OpenSearchDSL\Query\Compound\DisMaxQuery;
 
 /**
  * @internal

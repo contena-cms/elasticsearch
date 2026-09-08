@@ -2,9 +2,6 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
-use OpenSearchDSL\BuilderInterface;
 use Contena\Core\Content\Blog\BlogDefinition;
 use Contena\Core\Defaults;
 use Contena\Core\Framework\Context;
@@ -18,6 +15,9 @@ use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
 use Contena\Elasticsearch\Framework\ElasticsearchFieldBuilder;
 use Contena\Elasticsearch\Framework\ElasticsearchFieldMapper;
 use Contena\Elasticsearch\Framework\ElasticsearchIndexingUtils;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use OpenSearchDSL\BuilderInterface;
 
 /**
  * @internal

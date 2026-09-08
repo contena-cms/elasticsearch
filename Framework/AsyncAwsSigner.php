@@ -8,9 +8,9 @@ use AsyncAws\Core\Request;
 use AsyncAws\Core\RequestContext;
 use AsyncAws\Core\Signer\SignerV4;
 use AsyncAws\Core\Stream\StringStream;
+use Contena\Elasticsearch\ElasticsearchException;
 use Psr\Http\Message\RequestInterface;
 use Psr\Log\LoggerInterface;
-use Contena\Elasticsearch\ElasticsearchException;
 
 /**
  * @internal

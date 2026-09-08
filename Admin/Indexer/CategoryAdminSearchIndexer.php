@@ -2,8 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin\Indexer;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
 use Contena\Core\Content\Category\Aggregate\CategoryTag\CategoryTagDefinition;
 use Contena\Core\Content\Category\Aggregate\CategoryTranslation\CategoryTranslationDefinition;
 use Contena\Core\Content\Category\CategoryCollection;
@@ -19,6 +17,8 @@ use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
 use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
 use Contena\Elasticsearch\Framework\ElasticsearchFieldBuilder;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 
 final class CategoryAdminSearchIndexer extends AbstractAdminIndexer
 {

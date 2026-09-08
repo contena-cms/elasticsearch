@@ -2,8 +2,6 @@
 
 namespace Contena\Elasticsearch\Framework\DataAbstractionLayer;
 
-use OpenSearch\Client;
-use OpenSearchDSL\Search;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\EntityDefinition;
 use Contena\Core\Framework\DataAbstractionLayer\Search\AggregationResult\AggregationResultCollection;
@@ -13,6 +11,8 @@ use Contena\Elasticsearch\Framework\DataAbstractionLayer\Event\ElasticsearchEnti
 use Contena\Elasticsearch\Framework\DataAbstractionLayer\Event\ElasticsearchEntityAggregatorSearchEvent;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
 use Contena\Elasticsearch\Framework\Exception\EmptyQueryException;
+use OpenSearch\Client;
+use OpenSearchDSL\Search;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 class ElasticsearchEntityAggregator implements EntityAggregatorInterface

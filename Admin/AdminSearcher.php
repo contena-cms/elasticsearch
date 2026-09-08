@@ -2,14 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin;
 
-use OpenSearch\Client;
-use OpenSearchDSL\Query\Compound\BoolQuery;
-use OpenSearchDSL\Query\FullText\MatchQuery;
-use OpenSearchDSL\Query\FullText\SimpleQueryStringQuery;
-use OpenSearchDSL\Query\TermLevel\ExistsQuery;
-use OpenSearchDSL\Query\TermLevel\PrefixQuery;
-use OpenSearchDSL\Query\TermLevel\TermQuery;
-use OpenSearchDSL\Search;
 use Contena\Core\Framework\Api\Acl\Role\AclRoleDefinition;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\DefinitionInstanceRegistry;
@@ -23,6 +15,14 @@ use Contena\Elasticsearch\ElasticsearchException;
 use Contena\Elasticsearch\Framework\DataAbstractionLayer\AbstractElasticsearchSearchHydrator;
 use Contena\Elasticsearch\Framework\DataAbstractionLayer\ElasticsearchEntitySearcher;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
+use OpenSearch\Client;
+use OpenSearchDSL\Query\Compound\BoolQuery;
+use OpenSearchDSL\Query\FullText\MatchQuery;
+use OpenSearchDSL\Query\FullText\SimpleQueryStringQuery;
+use OpenSearchDSL\Query\TermLevel\ExistsQuery;
+use OpenSearchDSL\Query\TermLevel\PrefixQuery;
+use OpenSearchDSL\Query\TermLevel\TermQuery;
+use OpenSearchDSL\Search;
 
 /**
  * @internal

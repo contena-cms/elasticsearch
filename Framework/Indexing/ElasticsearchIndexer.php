@@ -2,10 +2,6 @@
 
 namespace Contena\Elasticsearch\Framework\Indexing;
 
-use Doctrine\DBAL\Connection;
-use OpenSearch\Client;
-use Psr\Clock\ClockInterface;
-use Psr\Log\LoggerInterface;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IteratorFactory;
 use Contena\Core\Framework\DataAbstractionLayer\EntityDefinition;
@@ -15,6 +11,10 @@ use Contena\Elasticsearch\Framework\ElasticsearchHelper;
 use Contena\Elasticsearch\Framework\ElasticsearchRegistry;
 use Contena\Elasticsearch\Framework\Indexing\Event\ElasticsearchIndexingFinishedEvent;
 use Contena\Elasticsearch\Framework\Indexing\Event\ElasticsearchIndexIteratorEvent;
+use Doctrine\DBAL\Connection;
+use OpenSearch\Client;
+use Psr\Clock\ClockInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 

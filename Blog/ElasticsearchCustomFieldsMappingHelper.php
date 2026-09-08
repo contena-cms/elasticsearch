@@ -2,11 +2,11 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use OpenSearch\Client;
-use OpenSearch\Exception\BadRequestHttpException;
 use Contena\Core\System\CustomField\CustomFieldTypes;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
 use Contena\Elasticsearch\Framework\ElasticsearchOutdatedIndexDetector;
+use OpenSearch\Client;
+use OpenSearch\Exception\BadRequestHttpException;
 
 /**
  * @internal

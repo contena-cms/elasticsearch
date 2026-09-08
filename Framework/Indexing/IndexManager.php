@@ -2,9 +2,9 @@
 
 namespace Contena\Elasticsearch\Framework\Indexing;
 
-use OpenSearch\Client;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
 use Contena\Elasticsearch\Framework\ElasticsearchRegistry;
+use OpenSearch\Client;
 
 /**
  * @internal

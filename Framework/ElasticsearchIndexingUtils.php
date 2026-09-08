@@ -2,12 +2,12 @@
 
 namespace Contena\Elasticsearch\Framework;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\Exception;
 use Contena\Core\Framework\Context;
 use Contena\Elasticsearch\Blog\BlogCustomFieldsUsedUpdater;
 use Contena\Elasticsearch\Event\ElasticsearchCustomFieldsMappingEvent;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 

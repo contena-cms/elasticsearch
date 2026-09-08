@@ -2,9 +2,9 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use OpenSearchDSL\BuilderInterface;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use OpenSearchDSL\BuilderInterface;
 
 abstract class AbstractBlogSearchQueryBuilder
 {

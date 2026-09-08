@@ -2,9 +2,6 @@
 
 namespace Contena\Elasticsearch\DependencyInjection;
 
-use Doctrine\DBAL\Connection;
-use OpenSearch\Client;
-use Psr\Clock\ClockInterface;
 use Contena\Core\Content\Blog\BlogDefinition;
 use Contena\Core\Content\Blog\SearchKeyword\BlogSearchBuilderInterface;
 use Contena\Core\Framework\Adapter\Storage\AbstractKeyValueStorage;
@@ -90,6 +87,9 @@ use Contena\Elasticsearch\NestedFieldQueryBuilder;
 use Contena\Elasticsearch\Profiler\DataCollector;
 use Contena\Elasticsearch\TokenQueryBuilder;
 use Contena\Elasticsearch\TranslatedFieldQueryBuilder;
+use Doctrine\DBAL\Connection;
+use OpenSearch\Client;
+use Psr\Clock\ClockInterface;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\env;

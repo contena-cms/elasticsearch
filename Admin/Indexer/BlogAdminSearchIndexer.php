@@ -2,11 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin\Indexer;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
-use OpenSearchDSL\Query\Compound\BoolQuery;
-use OpenSearchDSL\Query\FullText\SimpleQueryStringQuery;
-use OpenSearchDSL\Search;
 use Contena\Core\Content\Blog\Aggregate\BlogCategory\BlogCategoryDefinition;
 use Contena\Core\Content\Blog\Aggregate\BlogMedia\BlogMediaDefinition;
 use Contena\Core\Content\Blog\Aggregate\BlogTag\BlogTagDefinition;
@@ -27,6 +22,11 @@ use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
 use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
 use Contena\Elasticsearch\Framework\ElasticsearchFieldBuilder;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use OpenSearchDSL\Query\Compound\BoolQuery;
+use OpenSearchDSL\Query\FullText\SimpleQueryStringQuery;
+use OpenSearchDSL\Search;
 
 final class BlogAdminSearchIndexer extends AbstractAdminIndexer
 {

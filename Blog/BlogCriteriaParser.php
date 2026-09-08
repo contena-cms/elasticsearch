@@ -2,12 +2,6 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use OpenSearchDSL\BuilderInterface;
-use OpenSearchDSL\Query\Compound\BoolQuery;
-use OpenSearchDSL\Query\TermLevel\ExistsQuery;
-use OpenSearchDSL\Query\TermLevel\RangeQuery;
-use OpenSearchDSL\Query\TermLevel\TermQuery;
-use OpenSearchDSL\Query\TermLevel\TermsQuery;
 use Contena\Core\Content\Blog\BlogDefinition;
 use Contena\Core\Content\Blog\Channel\BlogAvailableFilter;
 use Contena\Core\Framework\Context;
@@ -19,6 +13,12 @@ use Contena\Core\Framework\DataAbstractionLayer\Search\Filter\Filter;
 use Contena\Core\Framework\DataAbstractionLayer\Search\Filter\RangeFilter;
 use Contena\Core\System\CustomField\CustomFieldService;
 use Contena\Elasticsearch\Framework\DataAbstractionLayer\CriteriaParser;
+use OpenSearchDSL\BuilderInterface;
+use OpenSearchDSL\Query\Compound\BoolQuery;
+use OpenSearchDSL\Query\TermLevel\ExistsQuery;
+use OpenSearchDSL\Query\TermLevel\RangeQuery;
+use OpenSearchDSL\Query\TermLevel\TermQuery;
+use OpenSearchDSL\Query\TermLevel\TermsQuery;
 
 /**
  * @internal - This class is part of the internal API, optimized for read and should not be used directly.

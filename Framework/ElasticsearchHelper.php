@@ -2,13 +2,6 @@
 
 namespace Contena\Elasticsearch\Framework;
 
-use OpenSearch\Client;
-use OpenSearchDSL\Query\Compound\BoolQuery;
-use OpenSearchDSL\Query\FullText\MatchQuery;
-use OpenSearchDSL\Query\TermLevel\ExistsQuery;
-use OpenSearchDSL\Query\TermLevel\TermQuery;
-use OpenSearchDSL\Search;
-use Psr\Log\LoggerInterface;
 use Contena\Core\Framework\Api\Context\ChannelApiSource;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\EntityDefinition;
@@ -19,6 +12,13 @@ use Contena\Core\Framework\DataAbstractionLayer\Search\Filter\MultiFilter;
 use Contena\Core\System\SystemConfig\SystemConfigService;
 use Contena\Elasticsearch\ElasticsearchException;
 use Contena\Elasticsearch\Framework\DataAbstractionLayer\CriteriaParser;
+use OpenSearch\Client;
+use OpenSearchDSL\Query\Compound\BoolQuery;
+use OpenSearchDSL\Query\FullText\MatchQuery;
+use OpenSearchDSL\Query\TermLevel\ExistsQuery;
+use OpenSearchDSL\Query\TermLevel\TermQuery;
+use OpenSearchDSL\Search;
+use Psr\Log\LoggerInterface;
 
 class ElasticsearchHelper
 {

@@ -2,9 +2,9 @@
 
 namespace Contena\Elasticsearch\Framework\Command;
 
+use Contena\Elasticsearch\Framework\ElasticsearchOutdatedIndexDetector;
 use Doctrine\DBAL\Connection;
 use OpenSearch\Client;
-use Contena\Elasticsearch\Framework\ElasticsearchOutdatedIndexDetector;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;

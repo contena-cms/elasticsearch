@@ -4,6 +4,8 @@ namespace Contena\Elasticsearch\Framework;
 
 use AsyncAws\Core\Configuration;
 use AsyncAws\Core\Credentials\ChainProvider;
+use Contena\Elasticsearch\ElasticsearchException;
+use Contena\Elasticsearch\Profiler\ClientProfiler;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
@@ -13,8 +15,6 @@ use OpenSearch\Client;
 use OpenSearch\HttpClient\GuzzleHttpClientFactory;
 use OpenSearch\TransportFactory;
 use Psr\Log\LoggerInterface;
-use Contena\Elasticsearch\ElasticsearchException;
-use Contena\Elasticsearch\Profiler\ClientProfiler;
 
 class ClientFactory
 {

@@ -2,14 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\Exception;
-use OpenSearch\Client;
-use OpenSearch\Exception\OpenSearchExceptionInterface;
-use Psr\Clock\ClockInterface;
-use Psr\Http\Client\ClientExceptionInterface;
-use Psr\Log\LoggerInterface;
 use Contena\Core\Defaults;
 use Contena\Core\Framework\Api\Context\ChannelApiSource;
 use Contena\Core\Framework\DataAbstractionLayer\Event\EntityWrittenContainerEvent;
@@ -20,6 +12,14 @@ use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Elasticsearch\Admin\Indexer\AbstractAdminIndexer;
 use Contena\Elasticsearch\ElasticsearchException;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception;
+use OpenSearch\Client;
+use OpenSearch\Exception\OpenSearchExceptionInterface;
+use Psr\Clock\ClockInterface;
+use Psr\Http\Client\ClientExceptionInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 use Symfony\Component\Messenger\MessageBusInterface;

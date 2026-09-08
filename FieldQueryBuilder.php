@@ -2,12 +2,6 @@
 
 namespace Contena\Elasticsearch;
 
-use OpenSearchDSL\BuilderInterface;
-use OpenSearchDSL\Query\Compound\ConstantScoreQuery;
-use OpenSearchDSL\Query\Compound\DisMaxQuery;
-use OpenSearchDSL\Query\FullText\MatchPhrasePrefixQuery;
-use OpenSearchDSL\Query\FullText\MatchQuery;
-use OpenSearchDSL\Query\TermLevel\TermQuery;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Field\BoolField;
 use Contena\Core\Framework\DataAbstractionLayer\Field\Field;
@@ -20,6 +14,12 @@ use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
 use Contena\Elasticsearch\Blog\SearchFieldConfig;
 use Contena\Elasticsearch\Framework\ElasticsearchFieldBuilder;
 use Contena\Elasticsearch\Query\MatchBoolPrefixQuery;
+use OpenSearchDSL\BuilderInterface;
+use OpenSearchDSL\Query\Compound\ConstantScoreQuery;
+use OpenSearchDSL\Query\Compound\DisMaxQuery;
+use OpenSearchDSL\Query\FullText\MatchPhrasePrefixQuery;
+use OpenSearchDSL\Query\FullText\MatchQuery;
+use OpenSearchDSL\Query\TermLevel\TermQuery;
 
 /**
  * @internal

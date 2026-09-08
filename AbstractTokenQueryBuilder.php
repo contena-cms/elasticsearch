@@ -2,9 +2,9 @@
 
 namespace Contena\Elasticsearch;
 
-use OpenSearchDSL\BuilderInterface;
 use Contena\Core\Framework\Context;
 use Contena\Elasticsearch\Blog\SearchFieldConfig;
+use OpenSearchDSL\BuilderInterface;
 
 abstract class AbstractTokenQueryBuilder
 {

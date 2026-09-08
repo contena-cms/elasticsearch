@@ -2,8 +2,8 @@
 
 namespace Contena\Elasticsearch\Migration\V6_8;
 
-use Doctrine\DBAL\Connection;
 use Contena\Core\Framework\Migration\MigrationStep;
+use Doctrine\DBAL\Connection;
 
 /**
  * Development-baseline schema for Elasticsearch indexing tasks.

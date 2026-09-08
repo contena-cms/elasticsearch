@@ -2,12 +2,12 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
 use Contena\Core\Content\Blog\Channel\Sorting\BlogSortingDefinition;
 use Contena\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 /**

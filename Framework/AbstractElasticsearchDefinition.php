@@ -2,11 +2,11 @@
 
 namespace Contena\Elasticsearch\Framework;
 
-use OpenSearchDSL\BuilderInterface;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\Dbal\Common\IterableQuery;
 use Contena\Core\Framework\DataAbstractionLayer\EntityDefinition;
 use Contena\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use OpenSearchDSL\BuilderInterface;
 
 abstract class AbstractElasticsearchDefinition
 {

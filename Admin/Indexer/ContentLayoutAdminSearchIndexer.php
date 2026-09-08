@@ -2,8 +2,6 @@
 
 namespace Contena\Elasticsearch\Admin\Indexer;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Connection;
 use Contena\Core\Framework\ContentSystem\Layout\Entity\ContentLayoutCollection;
 use Contena\Core\Framework\ContentSystem\Layout\Entity\ContentLayoutDefinition;
 use Contena\Core\Framework\Context;
@@ -15,6 +13,8 @@ use Contena\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
 use Contena\Core\Framework\Uuid\Uuid;
 use Contena\Elasticsearch\Framework\AbstractElasticsearchDefinition;
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 
 final class ContentLayoutAdminSearchIndexer extends AbstractAdminIndexer
 {

@@ -2,8 +2,6 @@
 
 namespace Contena\Elasticsearch\Blog;
 
-use OpenSearchDSL\BuilderInterface;
-use OpenSearchDSL\Query\Compound\BoolQuery;
 use Contena\Core\Framework\Context;
 use Contena\Core\Framework\DataAbstractionLayer\EntityDefinition;
 use Contena\Core\Framework\DataAbstractionLayer\Search\Criteria;
@@ -13,6 +11,8 @@ use Contena\Core\Framework\Plugin\Exception\DecorationPatternException;
 use Contena\Elasticsearch\AbstractTokenQueryBuilder;
 use Contena\Elasticsearch\ElasticsearchException;
 use Contena\Elasticsearch\Framework\DataAbstractionLayer\ElasticsearchTokenizer;
+use OpenSearchDSL\BuilderInterface;
+use OpenSearchDSL\Query\Compound\BoolQuery;
 
 /**
  * @phpstan-type SearchConfig array{and_logic: string, field: string, tokenize: int, ranking: int, use_exact_subfield?: int}

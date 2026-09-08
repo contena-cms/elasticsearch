@@ -2,10 +2,10 @@
 
 namespace Contena\Elasticsearch;
 
-use OpenSearchDSL\BuilderInterface;
-use OpenSearchDSL\Query\Joining\NestedQuery;
 use Contena\Core\Framework\Context;
 use Contena\Elasticsearch\Blog\SearchFieldConfig;
+use OpenSearchDSL\BuilderInterface;
+use OpenSearchDSL\Query\Joining\NestedQuery;
 
 /**
  * @internal

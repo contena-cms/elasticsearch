@@ -2,14 +2,14 @@
 
 namespace Contena\Elasticsearch\Framework\Indexing;
 
-use Doctrine\DBAL\Connection;
-use OpenSearch\Client;
-use Psr\Log\LoggerInterface;
 use Contena\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Contena\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskCollection;
 use Contena\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskHandler;
 use Contena\Elasticsearch\Framework\ElasticsearchHelper;
 use Contena\Elasticsearch\Framework\Indexing\Event\ElasticsearchIndexAliasSwitchedEvent;
+use Doctrine\DBAL\Connection;
+use OpenSearch\Client;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
